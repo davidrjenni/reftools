@@ -38,6 +38,9 @@ import (
 )
 
 func main() {
+	log.SetFlags(0)
+	log.SetPrefix("fixplurals: ")
+
 	dryRun := flag.Bool("dry", false, "dry run: print changes to stdout")
 	flag.Parse()
 
