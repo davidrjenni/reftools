@@ -10,4 +10,4 @@ reftools - refactoring tools for Go
 |-------------------------------|----------------------------------------------------------------------|
 | [fixplurals](cmd/fixplurals/) | remove redundant parameter and result types from function signatures |
 | [fillstruct](cmd/fillstruct/) | fills a struct literal with default values                           |
-
+| [fillswitch](cmd/fillswitch/) | fills a (type) switch statement with case statements                 |

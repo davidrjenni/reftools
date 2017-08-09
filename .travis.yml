@@ -4,10 +4,10 @@ env: GO15VENDOREXPERIMENT=1 # support vendor/ for Go 1.5.x
 
 before_install:
 - touch Makefile # for Travis CI: avoid running go get ./...
-- go vet $(go list ./... | grep -v /vendor/) # avoid vetting vendor/ for Go < 1.9.x
+- go vet $(go list ./... | grep -v /vendor/ | grep -v /test-fixtures/) # avoid vetting vendor/ for Go < 1.9.x and the test fixtures
 
 script:
-- go test -race -v $(go list ./... | grep -v /vendor/) # avoid testing vendor/ for Go < 1.9.x
+- go test -race -v $(go list ./... | grep -v /vendor/ | grep -v /test-fixtures/) # avoid testing vendor/ for Go < 1.9.x and the test fixtures
 
 go:
     - 1.5.x
