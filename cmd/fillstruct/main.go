@@ -361,14 +361,14 @@ func findPos(lprog *loader.Program, filename string, off int) (*ast.File, token.
 		if file := lprog.Fset.File(f.Pos()); file.Name() == filename {
 			if off > file.Size() {
 				return nil, 0,
-					fmt.Errorf("file size (%v) is smaller than given offset (%v)",
+					fmt.Errorf("file size (%d) is smaller than given offset (%d)",
 						file.Size(), off)
 			}
 			return f, file.Pos(off), nil
 		}
 	}
 
-	return nil, 0, fmt.Errorf("could not find file %#v", filename)
+	return nil, 0, fmt.Errorf("could not find file %q", filename)
 }
 
 func findCompositeLit(f *ast.File, info types.Info, pos token.Pos) (*ast.CompositeLit, *types.Struct, *types.Named, error) {
