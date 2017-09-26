@@ -124,7 +124,26 @@ func (f *filler) zero(t types.Type, name *types.Named, isInArray, isPtr bool) as
 	case *types.Interface:
 		return &ast.Ident{Name: "nil", NamePos: f.pos}
 	case *types.Map:
-		return &ast.Ident{Name: "nil", NamePos: f.pos}
+		lit := &ast.CompositeLit{
+			Lbrace: f.pos,
+			Type: &ast.MapType{
+				Map:   f.pos,
+				Key:   ast.NewIdent(typeString(f.pkg, t.Key())),
+				Value: ast.NewIdent(typeString(f.pkg, t.Elem())),
+			},
+		}
+		f.pos++
+		lit.Elts = []ast.Expr{
+			&ast.KeyValueExpr{
+				Key:   f.zero(t.Key(), name, true, false),
+				Colon: f.pos,
+				Value: f.zero(t.Elem(), name, true, false),
+			},
+		}
+		f.pos++
+		lit.Rbrace = f.pos
+		f.lines += 2
+		return lit
 	case *types.Signature:
 		return &ast.Ident{Name: "nil", NamePos: f.pos}
 	case *types.Slice:
