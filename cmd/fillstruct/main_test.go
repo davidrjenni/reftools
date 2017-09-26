@@ -63,7 +63,6 @@ type myStruct struct {
 	b chan int
 	c interface{}
 	d io.Writer
-	e map[string]int
 	f func(int) bool
 	g []int
 }`,
@@ -72,7 +71,6 @@ type myStruct struct {
 	b: nil,
 	c: nil,
 	d: nil,
-	e: nil,
 	f: nil,
 	g: nil,
 }`,
@@ -263,7 +261,9 @@ type myStruct struct {
 		nil,
 	},
 	i: [1]map[string]int{
-		nil,
+		map[string]int{
+			"": 0,
+		},
 	},
 }`,
 		},
@@ -411,6 +411,46 @@ type myStruct struct {
 	},
 	typ:  &types.Struct{},
 	name: &types.Named{},
+}`,
+		},
+		{
+			name: "maps",
+			src: `package p
+
+import "io"
+
+var s = myStruct{}
+
+type duration uint
+
+type myStruct struct {
+	a map[string]int
+	b map[io.Reader]string
+	c map[*io.Reader]map[int]string
+	d map[int]*io.LimitedReader
+	e map[string]duration
+}`,
+			want: `myStruct{
+	a: map[string]int{
+		"": 0,
+	},
+	b: map[io.Reader]string{
+		nil: "",
+	},
+	c: map[*io.Reader]map[int]string{
+		nil: map[int]string{
+			0: "",
+		},
+	},
+	d: map[int]*io.LimitedReader{
+		0: {
+			R: nil,
+			N: 0,
+		},
+	},
+	e: map[string]duration{
+		"": 0,
+	},
 }`,
 		},
 	}
