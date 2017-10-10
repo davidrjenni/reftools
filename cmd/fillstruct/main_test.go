@@ -461,9 +461,9 @@ type myStruct struct {
 		name := types.NewNamed(types.NewTypeName(0, pkg, "myStruct", nil), typ, nil)
 		newlit, lines := zeroValue(pkg, lit, typ, name)
 
-		out := printNode(t, newlit, lines)
+		out := printNode(t, test.name, newlit, lines)
 		if test.want != out {
-			t.Errorf("%s: got %v, want %v\n", test.name, out, test.want)
+			t.Errorf("%q: got %v, want %v\n", test.name, out, test.want)
 		}
 	}
 }
@@ -486,7 +486,7 @@ func parseStruct(t *testing.T, filename, src string) (*types.Package, *ast.Compo
 	return pkg, expr.(*ast.CompositeLit), info.Types[expr].Type.Underlying().(*types.Struct)
 }
 
-func printNode(t *testing.T, n ast.Node, lines int) string {
+func printNode(t *testing.T, name string, n ast.Node, lines int) string {
 	fset := token.NewFileSet()
 	file := fset.AddFile("", -1, lines)
 	for i := 1; i <= lines; i++ {
@@ -495,7 +495,7 @@ func printNode(t *testing.T, n ast.Node, lines int) string {
 
 	var buf bytes.Buffer
 	if err := format.Node(&buf, fset, n); err != nil {
-		t.Fatal(err)
+		t.Fatalf("%q: %v", name, err)
 	}
 	return buf.String()
 }
