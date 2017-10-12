@@ -482,6 +482,35 @@ type myStruct struct {
 	f: nil,
 }`,
 		},
+		{
+			name: "recursive struct definitions",
+			src: `package p
+
+import "unsafe"
+
+var s = myStruct{}
+
+type myStruct struct {
+	a *myStruct
+	b [1]*myStruct
+	c *otherStruct
+	z myStruct // type error: invalid recursive type myStruct
+}
+
+type otherStruct struct {
+	a *myStruct
+}
+`,
+			want: `myStruct{
+	a: &myStruct{},
+	b: [1]*myStruct{
+		{},
+	},
+	c: &otherStruct{
+		a: &myStruct{},
+	},
+}`,
+		},
 	}
 
 	for _, test := range tests {

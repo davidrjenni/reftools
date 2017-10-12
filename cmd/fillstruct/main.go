@@ -94,10 +94,10 @@ func zeroValue(pkg *types.Package, lit *ast.CompositeLit, t *types.Struct, name 
 		kv := e.(*ast.KeyValueExpr)
 		f.existing[kv.Key.(*ast.Ident).Name] = kv
 	}
-	return f.zero(t, name, false, false), f.lines
+	return f.zero(t, name, false, false, make([]types.Type, 0, 8)), f.lines
 }
 
-func (f *filler) zero(t types.Type, name *types.Named, isInArray, isPtr bool) ast.Expr {
+func (f *filler) zero(t types.Type, name *types.Named, isInArray, isPtr bool, visited []types.Type) ast.Expr {
 	switch t := t.(type) {
 	case *types.Basic:
 		switch t.Kind() {
@@ -145,9 +145,9 @@ func (f *filler) zero(t types.Type, name *types.Named, isInArray, isPtr bool) as
 		f.pos++
 		lit.Elts = []ast.Expr{
 			&ast.KeyValueExpr{
-				Key:   f.zero(t.Key(), name, true, false),
+				Key:   f.zero(t.Key(), name, true, false, visited),
 				Colon: f.pos,
-				Value: f.zero(t.Elem(), name, true, false),
+				Value: f.zero(t.Elem(), name, true, false, visited),
 			},
 		}
 		f.pos++
@@ -176,7 +176,7 @@ func (f *filler) zero(t types.Type, name *types.Named, isInArray, isPtr bool) as
 		for i := int64(0); i < t.Len(); i++ {
 			f.pos++
 			n, _ := t.Elem().(*types.Named)
-			if v := f.zero(t.Elem().Underlying(), n, true, false); v != nil {
+			if v := f.zero(t.Elem().Underlying(), n, true, false, visited); v != nil {
 				lit.Elts = append(lit.Elts, v)
 			}
 		}
@@ -190,11 +190,11 @@ func (f *filler) zero(t types.Type, name *types.Named, isInArray, isPtr bool) as
 		if _, ok := t.Underlying().(*types.Struct); ok {
 			name = t
 		}
-		return f.zero(t.Underlying(), name, isInArray, isPtr)
+		return f.zero(t.Underlying(), name, isInArray, isPtr, visited)
 
 	case *types.Pointer:
 		if _, ok := t.Elem().Underlying().(*types.Struct); ok {
-			return f.zero(t.Elem(), name, isInArray, true)
+			return f.zero(t.Elem(), name, isInArray, true, visited)
 		}
 		return &ast.Ident{Name: "nil", NamePos: f.pos}
 
@@ -217,6 +217,13 @@ func (f *filler) zero(t types.Type, name *types.Named, isInArray, isPtr bool) as
 			newlit.Type = ast.NewIdent(typeName)
 		}
 
+		for _, typ := range visited {
+			if t == typ {
+				return newlit
+			}
+		}
+		visited = append(visited, t)
+
 		first := f.first
 		f.first = false
 		lines := 0
@@ -232,7 +239,7 @@ func (f *filler) zero(t types.Type, name *types.Named, isInArray, isPtr bool) as
 			} else if !ok && !imported || field.Exported() {
 				f.pos++
 				k := &ast.Ident{Name: field.Name(), NamePos: f.pos}
-				if v := f.zero(field.Type(), nil, false, false); v != nil {
+				if v := f.zero(field.Type(), nil, false, false, visited); v != nil {
 					lines++
 					newlit.Elts = append(newlit.Elts, &ast.KeyValueExpr{
 						Key:   k,
