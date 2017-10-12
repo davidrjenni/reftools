@@ -42,20 +42,29 @@ import (
 	"go/types"
 )
 
-func typeString(pkg *types.Package, typ types.Type) string {
-	var buf bytes.Buffer
-	writeType(&buf, pkg, typ, make([]types.Type, 0, 8))
-	return buf.String()
+type typeWriter struct {
+	buf      *bytes.Buffer
+	pkg      *types.Package
+	hasError bool
 }
 
-func writeType(buf *bytes.Buffer, pkg *types.Package, typ types.Type, visited []types.Type) {
+func typeString(pkg *types.Package, typ types.Type) (string, bool) {
+	w := typeWriter{
+		buf: &bytes.Buffer{},
+		pkg: pkg,
+	}
+	w.writeType(typ, make([]types.Type, 0, 8))
+	return w.buf.String(), !w.hasError
+}
+
+func (w *typeWriter) writeType(typ types.Type, visited []types.Type) {
 	// Theoretically, this is a quadratic lookup algorithm, but in
 	// practice deeply nested composite types with unnamed component
 	// types are uncommon. This code is likely more efficient than
 	// using a map.
 	for _, t := range visited {
 		if t == typ {
-			fmt.Fprintf(buf, "○%T", typ) // cycle to typ
+			fmt.Fprintf(w.buf, "○%T", typ) // cycle to typ
 			return
 		}
 	}
@@ -63,50 +72,53 @@ func writeType(buf *bytes.Buffer, pkg *types.Package, typ types.Type, visited []
 
 	switch t := typ.(type) {
 	case nil:
-		buf.WriteString("nil")
+		w.buf.WriteString("nil")
 
 	case *types.Basic:
-		if t.Kind() == types.UnsafePointer {
-			buf.WriteString("unsafe.")
+		switch t.Kind() {
+		case types.Invalid:
+			w.hasError = true
+		case types.UnsafePointer:
+			w.buf.WriteString("unsafe.")
 		}
-		buf.WriteString(t.Name())
+		w.buf.WriteString(t.Name())
 
 	case *types.Array:
-		fmt.Fprintf(buf, "[%d]", t.Len())
-		writeType(buf, pkg, t.Elem(), visited)
+		fmt.Fprintf(w.buf, "[%d]", t.Len())
+		w.writeType(t.Elem(), visited)
 
 	case *types.Slice:
-		buf.WriteString("[]")
-		writeType(buf, pkg, t.Elem(), visited)
+		w.buf.WriteString("[]")
+		w.writeType(t.Elem(), visited)
 
 	case *types.Struct:
-		buf.WriteString("struct{")
+		w.buf.WriteString("struct{")
 		for i := 0; i < t.NumFields(); i++ {
 			f := t.Field(i)
 			if i > 0 {
-				buf.WriteString("; ")
+				w.buf.WriteString("; ")
 			}
 			if !f.Anonymous() {
-				buf.WriteString(f.Name())
-				buf.WriteByte(' ')
+				w.buf.WriteString(f.Name())
+				w.buf.WriteByte(' ')
 			}
-			writeType(buf, pkg, f.Type(), visited)
+			w.writeType(f.Type(), visited)
 			if tag := t.Tag(i); tag != "" {
-				fmt.Fprintf(buf, " %q", tag)
+				fmt.Fprintf(w.buf, " %q", tag)
 			}
 		}
-		buf.WriteByte('}')
+		w.buf.WriteByte('}')
 
 	case *types.Pointer:
-		buf.WriteByte('*')
-		writeType(buf, pkg, t.Elem(), visited)
+		w.buf.WriteByte('*')
+		w.writeType(t.Elem(), visited)
 
 	case *types.Tuple:
-		writeTuple(buf, pkg, t, false, visited)
+		w.writeTuple(t, false, visited)
 
 	case *types.Signature:
-		buf.WriteString("func")
-		writeSignature(buf, pkg, t, visited)
+		w.buf.WriteString("func")
+		w.writeSignature(t, visited)
 
 	case *types.Interface:
 		// We write the source-level methods and embedded types rather
@@ -120,29 +132,29 @@ func writeType(buf *bytes.Buffer, pkg *types.Package, typ types.Type, visited []
 		//         m() interface{ T }
 		//     }
 		//
-		buf.WriteString("interface{")
+		w.buf.WriteString("interface{")
 		// print explicit interface methods and embedded types
 		for i := 0; i < t.NumMethods(); i++ {
 			m := t.Method(i)
 			if i > 0 {
-				buf.WriteString("; ")
+				w.buf.WriteString("; ")
 			}
-			buf.WriteString(m.Name())
-			writeSignature(buf, pkg, m.Type().(*types.Signature), visited)
+			w.buf.WriteString(m.Name())
+			w.writeSignature(m.Type().(*types.Signature), visited)
 		}
 		for i := 0; i < t.NumEmbeddeds(); i++ {
 			if i > 0 || t.NumMethods() > 0 {
-				buf.WriteString("; ")
+				w.buf.WriteString("; ")
 			}
-			writeType(buf, pkg, t.Embedded(i), visited)
+			w.writeType(t.Embedded(i), visited)
 		}
-		buf.WriteByte('}')
+		w.buf.WriteByte('}')
 
 	case *types.Map:
-		buf.WriteString("map[")
-		writeType(buf, pkg, t.Key(), visited)
-		buf.WriteByte(']')
-		writeType(buf, pkg, t.Elem(), visited)
+		w.buf.WriteString("map[")
+		w.writeType(t.Key(), visited)
+		w.buf.WriteByte(']')
+		w.writeType(t.Elem(), visited)
 
 	case *types.Chan:
 		var s string
@@ -161,44 +173,44 @@ func writeType(buf *bytes.Buffer, pkg *types.Package, typ types.Type, visited []
 		default:
 			panic("unreachable")
 		}
-		buf.WriteString(s)
+		w.buf.WriteString(s)
 		if parens {
-			buf.WriteByte('(')
+			w.buf.WriteByte('(')
 		}
-		writeType(buf, pkg, t.Elem(), visited)
+		w.writeType(t.Elem(), visited)
 		if parens {
-			buf.WriteByte(')')
+			w.buf.WriteByte(')')
 		}
 
 	case *types.Named:
-		if isImported(pkg, t) && t.Obj().Pkg() != nil {
-			buf.WriteString(fmt.Sprintf("%s.%s", t.Obj().Pkg().Name(), t.Obj().Name()))
+		if isImported(w.pkg, t) && t.Obj().Pkg() != nil {
+			w.buf.WriteString(fmt.Sprintf("%s.%s", t.Obj().Pkg().Name(), t.Obj().Name()))
 		} else {
-			buf.WriteString(t.Obj().Name())
+			w.buf.WriteString(t.Obj().Name())
 		}
 
 	default:
 		// For externally defined implementations of Type.
-		buf.WriteString(t.String())
+		w.buf.WriteString(t.String())
 	}
 }
 
-func writeTuple(buf *bytes.Buffer, pkg *types.Package, tup *types.Tuple, variadic bool, visited []types.Type) {
-	buf.WriteByte('(')
+func (w *typeWriter) writeTuple(tup *types.Tuple, variadic bool, visited []types.Type) {
+	w.buf.WriteByte('(')
 	if tup != nil {
 		for i := 0; i < tup.Len(); i++ {
 			v := tup.At(i)
 			if i > 0 {
-				buf.WriteString(", ")
+				w.buf.WriteString(", ")
 			}
 			if v.Name() != "" {
-				buf.WriteString(v.Name())
-				buf.WriteByte(' ')
+				w.buf.WriteString(v.Name())
+				w.buf.WriteByte(' ')
 			}
 			typ := v.Type()
 			if variadic && i == tup.Len()-1 {
 				if s, ok := typ.(*types.Slice); ok {
-					buf.WriteString("...")
+					w.buf.WriteString("...")
 					typ = s.Elem()
 				} else {
 					// special case:
@@ -206,32 +218,32 @@ func writeTuple(buf *bytes.Buffer, pkg *types.Package, tup *types.Tuple, variadi
 					if t, ok := typ.Underlying().(*types.Basic); !ok || t.Kind() != types.String {
 						panic("internal error: string type expected")
 					}
-					writeType(buf, pkg, typ, visited)
-					buf.WriteString("...")
+					w.writeType(typ, visited)
+					w.buf.WriteString("...")
 					continue
 				}
 			}
-			writeType(buf, pkg, typ, visited)
+			w.writeType(typ, visited)
 		}
 	}
-	buf.WriteByte(')')
+	w.buf.WriteByte(')')
 }
 
-func writeSignature(buf *bytes.Buffer, pkg *types.Package, sig *types.Signature, visited []types.Type) {
-	writeTuple(buf, pkg, sig.Params(), sig.Variadic(), visited)
+func (w *typeWriter) writeSignature(sig *types.Signature, visited []types.Type) {
+	w.writeTuple(sig.Params(), sig.Variadic(), visited)
 
 	n := sig.Results().Len()
 	if n == 0 {
 		return // no result
 	}
 
-	buf.WriteByte(' ')
+	w.buf.WriteByte(' ')
 	if n == 1 && sig.Results().At(0).Name() == "" {
 		// single unnamed result
-		writeType(buf, pkg, sig.Results().At(0).Type(), visited)
+		w.writeType(sig.Results().At(0).Type(), visited)
 		return
 	}
 
 	// multiple or named result(s)
-	writeTuple(buf, pkg, sig.Results(), false, visited)
+	w.writeTuple(sig.Results(), false, visited)
 }

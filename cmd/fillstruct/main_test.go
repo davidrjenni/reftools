@@ -453,6 +453,35 @@ type myStruct struct {
 	},
 }`,
 		},
+		{
+			name: "type errors",
+			src: `package p
+
+import "io"
+
+var s = myStruct{}
+
+var x int = "type error"
+
+type myStruct struct {
+	a int
+	b in // type error
+	c int
+	d io.Reade // type error
+	e io.Reader
+	f []int
+	g [1]struct{
+		x boo  // type error
+	}
+	h [1]strin // type error
+}`,
+			want: `myStruct{
+	a: 0,
+	c: 0,
+	e: nil,
+	f: nil,
+}`,
+		},
 	}
 
 	for _, test := range tests {
@@ -476,11 +505,11 @@ func parseStruct(t *testing.T, filename, src string) (*types.Package, *ast.Compo
 	}
 
 	info := types.Info{Types: make(map[ast.Expr]types.TypeAndValue)}
-	conf := types.Config{Importer: importer.Default()}
-	pkg, err := conf.Check(f.Name.Name, fset, []*ast.File{f}, &info)
-	if err != nil {
-		t.Fatal(err)
+	conf := types.Config{
+		Importer: importer.Default(),
+		Error:    func(err error) {},
 	}
+	pkg, _ := conf.Check(f.Name.Name, fset, []*ast.File{f}, &info)
 
 	expr := f.Decls[1].(*ast.GenDecl).Specs[0].(*ast.ValueSpec).Values[0]
 	return pkg, expr.(*ast.CompositeLit), info.Types[expr].Type.Underlying().(*types.Struct)

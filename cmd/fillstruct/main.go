@@ -62,6 +62,7 @@ import (
 	"go/ast"
 	"go/build"
 	"go/format"
+	"go/parser"
 	"go/token"
 	"go/types"
 	"log"
@@ -117,19 +118,28 @@ func (f *filler) zero(t types.Type, name *types.Named, isInArray, isPtr bool) as
 		case types.String:
 			return &ast.BasicLit{Value: `""`, ValuePos: f.pos}
 		default:
-			panic(fmt.Sprintf("unexpected basic type kind %v", t.Kind()))
+			// Cannot create an expression for an invalid type.
+			return nil
 		}
 	case *types.Chan:
 		return &ast.Ident{Name: "nil", NamePos: f.pos}
 	case *types.Interface:
 		return &ast.Ident{Name: "nil", NamePos: f.pos}
 	case *types.Map:
+		keyTypeName, ok := typeString(f.pkg, t.Key())
+		if !ok {
+			return nil
+		}
+		valTypeName, ok := typeString(f.pkg, t.Elem())
+		if !ok {
+			return nil
+		}
 		lit := &ast.CompositeLit{
 			Lbrace: f.pos,
 			Type: &ast.MapType{
 				Map:   f.pos,
-				Key:   ast.NewIdent(typeString(f.pkg, t.Key())),
-				Value: ast.NewIdent(typeString(f.pkg, t.Elem())),
+				Key:   ast.NewIdent(keyTypeName),
+				Value: ast.NewIdent(valTypeName),
 			},
 		}
 		f.pos++
@@ -152,17 +162,23 @@ func (f *filler) zero(t types.Type, name *types.Named, isInArray, isPtr bool) as
 	case *types.Array:
 		lit := &ast.CompositeLit{Lbrace: f.pos}
 		if !isInArray {
+			typeName, ok := typeString(f.pkg, t.Elem())
+			if !ok {
+				return nil
+			}
 			lit.Type = &ast.ArrayType{
 				Lbrack: f.pos,
 				Len:    &ast.BasicLit{Value: strconv.FormatInt(t.Len(), 10)},
-				Elt:    ast.NewIdent(typeString(f.pkg, t.Elem())),
+				Elt:    ast.NewIdent(typeName),
 			}
 		}
-		lit.Elts = make([]ast.Expr, t.Len())
-		for i := range lit.Elts {
+		lit.Elts = make([]ast.Expr, 0, t.Len())
+		for i := int64(0); i < t.Len(); i++ {
 			f.pos++
 			n, _ := t.Elem().(*types.Named)
-			lit.Elts[i] = f.zero(t.Elem().Underlying(), n, true, false)
+			if v := f.zero(t.Elem().Underlying(), n, true, false); v != nil {
+				lit.Elts = append(lit.Elts, v)
+			}
 		}
 		f.lines += len(lit.Elts) + 2
 		f.pos++
@@ -185,12 +201,20 @@ func (f *filler) zero(t types.Type, name *types.Named, isInArray, isPtr bool) as
 	case *types.Struct:
 		newlit := &ast.CompositeLit{Lbrace: f.pos}
 		if !isInArray && name != nil {
-			newlit.Type = ast.NewIdent(typeString(f.pkg, name))
+			typeName, ok := typeString(f.pkg, name)
+			if !ok {
+				return nil
+			}
+			newlit.Type = ast.NewIdent(typeName)
 			if isPtr {
 				newlit.Type.(*ast.Ident).Name = "&" + newlit.Type.(*ast.Ident).Name
 			}
 		} else if !isInArray && name == nil {
-			newlit.Type = ast.NewIdent(typeString(f.pkg, t))
+			typeName, ok := typeString(f.pkg, t)
+			if !ok {
+				return nil
+			}
+			newlit.Type = ast.NewIdent(typeName)
 		}
 
 		first := f.first
@@ -207,11 +231,16 @@ func (f *filler) zero(t types.Type, name *types.Named, isInArray, isPtr bool) as
 				newlit.Elts = append(newlit.Elts, kv)
 			} else if !ok && !imported || field.Exported() {
 				f.pos++
-				lines++
-				newlit.Elts = append(newlit.Elts, &ast.KeyValueExpr{
-					Key:   &ast.Ident{Name: field.Name(), NamePos: f.pos},
-					Value: f.zero(field.Type(), nil, false, false),
-				})
+				k := &ast.Ident{Name: field.Name(), NamePos: f.pos}
+				if v := f.zero(field.Type(), nil, false, false); v != nil {
+					lines++
+					newlit.Elts = append(newlit.Elts, &ast.KeyValueExpr{
+						Key:   k,
+						Value: v,
+					})
+				} else {
+					f.pos--
+				}
 			}
 		}
 		if lines > 0 {
@@ -365,12 +394,8 @@ func load(path string, modified bool) (*loader.Program, error) {
 	if err != nil {
 		return nil, err
 	}
-	conf := &loader.Config{
-		Build: ctx,
-		TypeCheckFuncBodies: func(s string) bool {
-			return s == pkg.ImportPath || s == pkg.ImportPath+"_test"
-		},
-	}
+	conf := &loader.Config{Build: ctx}
+	allowErrors(conf)
 	conf.ImportWithTests(pkg.ImportPath)
 	return conf.Load()
 }
@@ -421,4 +446,13 @@ func print(n ast.Node, lines, start, end int) error {
 		End   int    `json:"end"`
 		Code  string `json:"code"`
 	}{Start: start, End: end, Code: buf.String()})
+}
+
+func allowErrors(conf *loader.Config) {
+	ctxt := *conf.Build
+	ctxt.CgoEnabled = false
+	conf.Build = &ctxt
+	conf.AllowErrors = true
+	conf.ParserMode = parser.AllErrors
+	conf.TypeChecker.Error = func(err error) {}
 }
