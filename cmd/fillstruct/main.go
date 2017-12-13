@@ -41,7 +41,7 @@
 //
 // Usage:
 //
-// 	% fillstruct [-modified] -file=<filename> -offset=<byte offset>
+// 	% fillstruct [-modified] -file=<filename> -offset=<byte offset> -line=<line number>
 //
 // Flags:
 //
@@ -49,7 +49,14 @@
 //
 // -modified: read an archive of modified files from stdin
 //
-// -offset:   byte offset of the struct literal
+// -offset:   byte offset of the struct literal, optional if -line is present
+//
+// -line:     line number of the struct literal, optional if -offset is present
+//
+//
+// If -offset as well as -line are present, then the tool first uses the
+// more specific offset information. If there was no struct literal found
+// at the given offset, then the line information is used.
 //
 package main
 
@@ -330,6 +337,8 @@ func isImported(pkg *types.Package, n *types.Named) bool {
 	return n != nil && pkg != n.Obj().Pkg()
 }
 
+var errNotFound = errors.New("no struct literal found at selection")
+
 func main() {
 	log.SetFlags(0)
 	log.SetPrefix("fillstruct: ")
@@ -337,11 +346,12 @@ func main() {
 	var (
 		filename = flag.String("file", "", "filename")
 		modified = flag.Bool("modified", false, "read an archive of modified files from stdin")
-		offset   = flag.Int("offset", 0, "byte offset of the struct literal")
+		offset   = flag.Int("offset", 0, "byte offset of the struct literal, optional if -line is present")
+		line     = flag.Int("line", 0, "line number of the struct literal, optional if -offset is present")
 	)
 	flag.Parse()
 
-	if *offset == 0 || *filename == "" {
+	if (*offset == 0 && *line == 0) || *filename == "" {
 		flag.PrintDefaults()
 		os.Exit(1)
 	}
@@ -357,23 +367,29 @@ func main() {
 	}
 	pkg := lprog.InitialPackages()[0]
 
-	f, pos, err := findPos(lprog, path, *offset)
-	if err != nil {
-		log.Fatal(err)
+	if *offset > 0 {
+		err = byOffset(lprog, path, pkg, *offset)
+		switch err {
+		case nil:
+			return
+		case errNotFound:
+			// try to use line information
+		default:
+			log.Fatal(err)
+		}
 	}
 
-	lit, typ, name, err := findCompositeLit(f, pkg.Info, pos)
-	if err != nil {
-		log.Fatal(err)
+	if *line > 0 {
+		err = byLine(lprog, path, pkg, *line)
+		switch err {
+		case nil:
+			return
+		default:
+			log.Fatal(err)
+		}
 	}
 
-	start := lprog.Fset.Position(lit.Pos()).Offset
-	end := lprog.Fset.Position(lit.End()).Offset
-
-	newlit, lines := zeroValue(pkg.Pkg, lit, typ, name)
-	if err := print(newlit, lines, start, end); err != nil {
-		log.Fatal(err)
-	}
+	log.Fatal(errNotFound)
 }
 
 func absPath(filename string) (string, error) {
@@ -407,6 +423,28 @@ func load(path string, modified bool) (*loader.Program, error) {
 	return conf.Load()
 }
 
+func byOffset(lprog *loader.Program, path string, pkg *loader.PackageInfo, offset int) error {
+	f, pos, err := findPos(lprog, path, offset)
+	if err != nil {
+		return err
+	}
+
+	lit, typ, name, err := findCompositeLit(f, pkg.Info, pos)
+	if err != nil {
+		return err
+	}
+
+	start := lprog.Fset.Position(lit.Pos()).Offset
+	end := lprog.Fset.Position(lit.End()).Offset
+
+	newlit, lines := zeroValue(pkg.Pkg, lit, typ, name)
+	out, err := prepareOutput(newlit, lines, start, end)
+	if err != nil {
+		return err
+	}
+	return json.NewEncoder(os.Stdout).Encode([]output{out})
+}
+
 func findPos(lprog *loader.Program, filename string, off int) (*ast.File, token.Pos, error) {
 	for _, f := range lprog.InitialPackages()[0].Files {
 		if file := lprog.Fset.File(f.Pos()); file.Name() == filename {
@@ -429,15 +467,78 @@ func findCompositeLit(f *ast.File, info types.Info, pos token.Pos) (*ast.Composi
 			name, _ := info.Types[lit].Type.(*types.Named)
 			typ, ok := info.Types[lit].Type.Underlying().(*types.Struct)
 			if !ok {
-				return nil, nil, nil, errors.New("no struct literal found at selection")
+				return nil, nil, nil, errNotFound
 			}
 			return lit, typ, name, nil
 		}
 	}
-	return nil, nil, nil, errors.New("no struct literal found at selection")
+	return nil, nil, nil, errNotFound
 }
 
-func print(n ast.Node, lines, start, end int) error {
+func byLine(lprog *loader.Program, path string, pkg *loader.PackageInfo, line int) (err error) {
+	var f *ast.File
+	for _, af := range lprog.InitialPackages()[0].Files {
+		if file := lprog.Fset.File(af.Pos()); file.Name() == path {
+			f = af
+		}
+	}
+	if f == nil {
+		return fmt.Errorf("could not find file %q", path)
+	}
+
+	var outs []output
+	ast.Inspect(f, func(n ast.Node) bool {
+		lit, ok := n.(*ast.CompositeLit)
+		if !ok {
+			return true
+		}
+		startLine := lprog.Fset.Position(lit.Pos()).Line
+		endLine := lprog.Fset.Position(lit.End()).Line
+		if !(startLine <= line && line <= endLine) {
+			return true
+		}
+
+		name, _ := pkg.Types[lit].Type.(*types.Named)
+		typ, ok := pkg.Types[lit].Type.Underlying().(*types.Struct)
+		if !ok {
+			err = errNotFound
+			return false
+		}
+
+		startOff := lprog.Fset.Position(lit.Pos()).Offset
+		endOff := lprog.Fset.Position(lit.End()).Offset
+		newlit, lines := zeroValue(pkg.Pkg, lit, typ, name)
+
+		var out output
+		out, err = prepareOutput(newlit, lines, startOff, endOff)
+		if err != nil {
+			return false
+		}
+		outs = append(outs, out)
+		return false
+	})
+	if err != nil {
+		return err
+	}
+	if len(outs) == 0 {
+		return errNotFound
+	}
+
+	for i := len(outs)/2 - 1; i >= 0; i-- {
+		opp := len(outs) - 1 - i
+		outs[i], outs[opp] = outs[opp], outs[i]
+	}
+
+	return json.NewEncoder(os.Stdout).Encode(outs)
+}
+
+type output struct {
+	Start int    `json:"start"`
+	End   int    `json:"end"`
+	Code  string `json:"code"`
+}
+
+func prepareOutput(n ast.Node, lines, start, end int) (output, error) {
 	fset := token.NewFileSet()
 	file := fset.AddFile("", -1, lines)
 	for i := 1; i <= lines; i++ {
@@ -446,13 +547,13 @@ func print(n ast.Node, lines, start, end int) error {
 
 	var buf bytes.Buffer
 	if err := format.Node(&buf, fset, n); err != nil {
-		return err
+		return output{}, err
 	}
-	return json.NewEncoder(os.Stdout).Encode(struct {
-		Start int    `json:"start"`
-		End   int    `json:"end"`
-		Code  string `json:"code"`
-	}{Start: start, End: end, Code: buf.String()})
+	return output{
+		Start: start,
+		End:   end,
+		Code:  buf.String(),
+	}, nil
 }
 
 func allowErrors(conf *loader.Config) {
