@@ -365,27 +365,22 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	pkg := lprog.InitialPackages()[0]
 
-	if *offset > 0 {
-		err = byOffset(lprog, path, pkg, *offset)
-		switch err {
-		case nil:
-			return
-		case errNotFound:
-			// try to use line information
-		default:
-			log.Fatal(err)
+	pkg := lprog.InitialPackages()
+
+	for _, v := range pkg {
+		if *offset > 0 {
+			err = byOffset(lprog, path, v, *offset)
+			if err == nil {
+				return
+			}
 		}
-	}
 
-	if *line > 0 {
-		err = byLine(lprog, path, pkg, *line)
-		switch err {
-		case nil:
-			return
-		default:
-			log.Fatal(err)
+		if *line > 0 {
+			err = byLine(lprog, path, v, *line)
+			if err == nil {
+				return
+			}
 		}
 	}
 
@@ -446,14 +441,16 @@ func byOffset(lprog *loader.Program, path string, pkg *loader.PackageInfo, offse
 }
 
 func findPos(lprog *loader.Program, filename string, off int) (*ast.File, token.Pos, error) {
-	for _, f := range lprog.InitialPackages()[0].Files {
-		if file := lprog.Fset.File(f.Pos()); file.Name() == filename {
-			if off > file.Size() {
-				return nil, 0,
-					fmt.Errorf("file size (%d) is smaller than given offset (%d)",
-						file.Size(), off)
+	for _, v := range lprog.InitialPackages() {
+		for _, f := range v.Files {
+			if file := lprog.Fset.File(f.Pos()); file.Name() == filename {
+				if off > file.Size() {
+					return nil, 0,
+						fmt.Errorf("file size (%d) is smaller than given offset (%d)",
+							file.Size(), off)
+				}
+				return f, file.Pos(off), nil
 			}
-			return f, file.Pos(off), nil
 		}
 	}
 
@@ -465,6 +462,10 @@ func findCompositeLit(f *ast.File, info types.Info, pos token.Pos) (*ast.Composi
 	for _, n := range path {
 		if lit, ok := n.(*ast.CompositeLit); ok {
 			name, _ := info.Types[lit].Type.(*types.Named)
+			if info.Types[lit].Type == nil {
+				continue
+			}
+
 			typ, ok := info.Types[lit].Type.Underlying().(*types.Struct)
 			if !ok {
 				return nil, nil, nil, errNotFound
@@ -477,13 +478,16 @@ func findCompositeLit(f *ast.File, info types.Info, pos token.Pos) (*ast.Composi
 
 func byLine(lprog *loader.Program, path string, pkg *loader.PackageInfo, line int) (err error) {
 	var f *ast.File
-	for _, af := range lprog.InitialPackages()[0].Files {
-		if file := lprog.Fset.File(af.Pos()); file.Name() == path {
-			f = af
+
+	for _, v := range lprog.InitialPackages() {
+		for _, af := range v.Files {
+			if file := lprog.Fset.File(af.Pos()); file.Name() == path {
+				f = af
+			}
 		}
-	}
-	if f == nil {
-		return fmt.Errorf("could not find file %q", path)
+		if f == nil {
+			return fmt.Errorf("could not find file %q", path)
+		}
 	}
 
 	var outs []output
