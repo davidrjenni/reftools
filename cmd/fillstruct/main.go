@@ -363,7 +363,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	lprog, err := load(path, strings.Split(*tags, ","), *modified)
+	lprog, err := load(path, strings.Split(*tags, " "), *modified)
 	if err != nil {
 		log.Fatal(err)
 	}
