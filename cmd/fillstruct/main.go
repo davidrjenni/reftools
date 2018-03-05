@@ -76,6 +76,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"golang.org/x/tools/go/ast/astutil"
 	"golang.org/x/tools/go/buildutil"
@@ -346,6 +347,7 @@ func main() {
 	var (
 		filename = flag.String("file", "", "filename")
 		modified = flag.Bool("modified", false, "read an archive of modified files from stdin")
+		tags     = flag.String("tags", "", "build tags")
 		offset   = flag.Int("offset", 0, "byte offset of the struct literal, optional if -line is present")
 		line     = flag.Int("line", 0, "line number of the struct literal, optional if -offset is present")
 	)
@@ -361,7 +363,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	lprog, err := load(path, *modified)
+	lprog, err := load(path, strings.Split(*tags, ","), *modified)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -400,8 +402,9 @@ func absPath(filename string) (string, error) {
 	return filepath.Abs(eval)
 }
 
-func load(path string, modified bool) (*loader.Program, error) {
+func load(path string, tags []string, modified bool) (*loader.Program, error) {
 	ctx := &build.Default
+	ctx.BuildTags = tags
 	if modified {
 		archive, err := buildutil.ParseOverlayArchive(os.Stdin)
 		if err != nil {

@@ -48,13 +48,14 @@ after applying fillstruct.
 ## Usage
 
 ```
-% fillstruct [-modified] -file=<filename> -offset=<byte offset> -line=<line number>
+% fillstruct [-modified] [-tags=<build tags>] -file=<filename> -offset=<byte offset> -line=<line number>
 ```
 
 Flags:
 
 	-file:     filename
 	-modified: read an archive of modified files from stdin
+	-tags:     build tags
 	-offset:   byte offset of the struct literal, optional if -line is present
 	-line:     line number of the struct literal, optional if -offset is present
 
