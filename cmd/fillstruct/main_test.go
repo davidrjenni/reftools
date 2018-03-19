@@ -517,7 +517,7 @@ type otherStruct struct {
 		pkg, lit, typ := parseStruct(t, test.name, test.src)
 
 		name := types.NewNamed(types.NewTypeName(0, pkg, "myStruct", nil), typ, nil)
-		newlit, lines := zeroValue(pkg, lit, typ, name)
+		newlit, lines := zeroValue(pkg, lit, litInfo{typ: typ, name: name})
 
 		out := printNode(t, test.name, newlit, lines)
 		if test.want != out {

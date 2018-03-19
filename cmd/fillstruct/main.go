@@ -82,6 +82,15 @@ import (
 	"golang.org/x/tools/go/loader"
 )
 
+// litInfo contains the information about
+// a literal to fill with zero values.
+type litInfo struct {
+	typ       types.Type   // the base type of the literal
+	name      *types.Named // name of the type or nil, e.g. for an anonymous struct type
+	hideType  bool         // flag to hide the element type inside an array, slice or map literal
+	isPointer bool         // true if the literal is of a pointer type
+}
+
 type filler struct {
 	pkg      *types.Package
 	pos      token.Pos
@@ -90,7 +99,7 @@ type filler struct {
 	first    bool
 }
 
-func zeroValue(pkg *types.Package, lit *ast.CompositeLit, t *types.Struct, name *types.Named) (ast.Expr, int) {
+func zeroValue(pkg *types.Package, lit *ast.CompositeLit, info litInfo) (ast.Expr, int) {
 	f := filler{
 		pkg:      pkg,
 		pos:      1,
@@ -101,11 +110,11 @@ func zeroValue(pkg *types.Package, lit *ast.CompositeLit, t *types.Struct, name 
 		kv := e.(*ast.KeyValueExpr)
 		f.existing[kv.Key.(*ast.Ident).Name] = kv
 	}
-	return f.zero(t, name, false, false, make([]types.Type, 0, 8)), f.lines
+	return f.zero(info, make([]types.Type, 0, 8)), f.lines
 }
 
-func (f *filler) zero(t types.Type, name *types.Named, isInArray, isPtr bool, visited []types.Type) ast.Expr {
-	switch t := t.(type) {
+func (f *filler) zero(info litInfo, visited []types.Type) ast.Expr {
+	switch t := info.typ.(type) {
 	case *types.Basic:
 		switch t.Kind() {
 		case types.Bool:
@@ -152,9 +161,9 @@ func (f *filler) zero(t types.Type, name *types.Named, isInArray, isPtr bool, vi
 		f.pos++
 		lit.Elts = []ast.Expr{
 			&ast.KeyValueExpr{
-				Key:   f.zero(t.Key(), name, true, false, visited),
+				Key:   f.zero(litInfo{typ: t.Key(), name: info.name, hideType: true}, visited),
 				Colon: f.pos,
-				Value: f.zero(t.Elem(), name, true, false, visited),
+				Value: f.zero(litInfo{typ: t.Elem(), name: info.name, hideType: true}, visited),
 			},
 		}
 		f.pos++
@@ -168,7 +177,7 @@ func (f *filler) zero(t types.Type, name *types.Named, isInArray, isPtr bool, vi
 
 	case *types.Array:
 		lit := &ast.CompositeLit{Lbrace: f.pos}
-		if !isInArray {
+		if !info.hideType {
 			typeName, ok := typeString(f.pkg, t.Elem())
 			if !ok {
 				return nil
@@ -182,8 +191,9 @@ func (f *filler) zero(t types.Type, name *types.Named, isInArray, isPtr bool, vi
 		lit.Elts = make([]ast.Expr, 0, t.Len())
 		for i := int64(0); i < t.Len(); i++ {
 			f.pos++
-			n, _ := t.Elem().(*types.Named)
-			if v := f.zero(t.Elem().Underlying(), n, true, false, visited); v != nil {
+			elemInfo := litInfo{typ: t.Elem().Underlying(), hideType: true}
+			elemInfo.name, _ = t.Elem().(*types.Named)
+			if v := f.zero(elemInfo, visited); v != nil {
 				lit.Elts = append(lit.Elts, v)
 			}
 		}
@@ -193,30 +203,32 @@ func (f *filler) zero(t types.Type, name *types.Named, isInArray, isPtr bool, vi
 		return lit
 
 	case *types.Named:
-		var name *types.Named
 		if _, ok := t.Underlying().(*types.Struct); ok {
-			name = t
+			info.name = t
 		}
-		return f.zero(t.Underlying(), name, isInArray, isPtr, visited)
+		info.typ = t.Underlying()
+		return f.zero(info, visited)
 
 	case *types.Pointer:
 		if _, ok := t.Elem().Underlying().(*types.Struct); ok {
-			return f.zero(t.Elem(), name, isInArray, true, visited)
+			info.typ = t.Elem()
+			info.isPointer = true
+			return f.zero(info, visited)
 		}
 		return &ast.Ident{Name: "nil", NamePos: f.pos}
 
 	case *types.Struct:
 		newlit := &ast.CompositeLit{Lbrace: f.pos}
-		if !isInArray && name != nil {
-			typeName, ok := typeString(f.pkg, name)
+		if !info.hideType && info.name != nil {
+			typeName, ok := typeString(f.pkg, info.name)
 			if !ok {
 				return nil
 			}
 			newlit.Type = ast.NewIdent(typeName)
-			if isPtr {
+			if info.isPointer {
 				newlit.Type.(*ast.Ident).Name = "&" + newlit.Type.(*ast.Ident).Name
 			}
-		} else if !isInArray && name == nil {
+		} else if !info.hideType && info.name == nil {
 			typeName, ok := typeString(f.pkg, t)
 			if !ok {
 				return nil
@@ -234,7 +246,7 @@ func (f *filler) zero(t types.Type, name *types.Named, isInArray, isPtr bool, vi
 		first := f.first
 		f.first = false
 		lines := 0
-		imported := isImported(f.pkg, name)
+		imported := isImported(f.pkg, info.name)
 
 		for i := 0; i < t.NumFields(); i++ {
 			field := t.Field(i)
@@ -246,7 +258,7 @@ func (f *filler) zero(t types.Type, name *types.Named, isInArray, isPtr bool, vi
 			} else if !ok && !imported || field.Exported() {
 				f.pos++
 				k := &ast.Ident{Name: field.Name(), NamePos: f.pos}
-				if v := f.zero(field.Type(), nil, false, false, visited); v != nil {
+				if v := f.zero(litInfo{typ: field.Type(), name: nil}, visited); v != nil {
 					lines++
 					newlit.Elts = append(newlit.Elts, &ast.KeyValueExpr{
 						Key:   k,
@@ -429,7 +441,7 @@ func byOffset(lprog *loader.Program, path string, pkg *loader.PackageInfo, offse
 		return err
 	}
 
-	lit, typ, name, err := findCompositeLit(f, pkg.Info, pos)
+	lit, litInfo, err := findCompositeLit(f, pkg.Info, pos)
 	if err != nil {
 		return err
 	}
@@ -437,7 +449,7 @@ func byOffset(lprog *loader.Program, path string, pkg *loader.PackageInfo, offse
 	start := lprog.Fset.Position(lit.Pos()).Offset
 	end := lprog.Fset.Position(lit.End()).Offset
 
-	newlit, lines := zeroValue(pkg.Pkg, lit, typ, name)
+	newlit, lines := zeroValue(pkg.Pkg, lit, litInfo)
 	out, err := prepareOutput(newlit, lines, start, end)
 	if err != nil {
 		return err
@@ -460,19 +472,23 @@ func findPos(lprog *loader.Program, filename string, off int) (*ast.File, token.
 	return nil, 0, fmt.Errorf("could not find file %q", filename)
 }
 
-func findCompositeLit(f *ast.File, info types.Info, pos token.Pos) (*ast.CompositeLit, *types.Struct, *types.Named, error) {
+func findCompositeLit(f *ast.File, info types.Info, pos token.Pos) (*ast.CompositeLit, litInfo, error) {
+	var linfo litInfo
 	path, _ := astutil.PathEnclosingInterval(f, pos, pos)
-	for _, n := range path {
+	for i, n := range path {
 		if lit, ok := n.(*ast.CompositeLit); ok {
-			name, _ := info.Types[lit].Type.(*types.Named)
-			typ, ok := info.Types[lit].Type.Underlying().(*types.Struct)
+			linfo.name, _ = info.Types[lit].Type.(*types.Named)
+			linfo.typ, ok = info.Types[lit].Type.Underlying().(*types.Struct)
 			if !ok {
-				return nil, nil, nil, errNotFound
+				return nil, linfo, errNotFound
 			}
-			return lit, typ, name, nil
+			if expr, ok := path[i+1].(ast.Expr); ok {
+				linfo.hideType = hideType(info.Types[expr].Type)
+			}
+			return lit, linfo, nil
 		}
 	}
-	return nil, nil, nil, errNotFound
+	return nil, linfo, errNotFound
 }
 
 func byLine(lprog *loader.Program, path string, pkg *loader.PackageInfo, line int) (err error) {
@@ -487,6 +503,7 @@ func byLine(lprog *loader.Program, path string, pkg *loader.PackageInfo, line in
 	}
 
 	var outs []output
+	var prev types.Type
 	ast.Inspect(f, func(n ast.Node) bool {
 		lit, ok := n.(*ast.CompositeLit)
 		if !ok {
@@ -498,16 +515,19 @@ func byLine(lprog *loader.Program, path string, pkg *loader.PackageInfo, line in
 			return true
 		}
 
-		name, _ := pkg.Types[lit].Type.(*types.Named)
-		typ, ok := pkg.Types[lit].Type.Underlying().(*types.Struct)
+		var info litInfo
+		info.name, _ = pkg.Types[lit].Type.(*types.Named)
+		info.typ, ok = pkg.Types[lit].Type.Underlying().(*types.Struct)
 		if !ok {
+			prev = pkg.Types[lit].Type.Underlying()
 			err = errNotFound
-			return false
+			return true
 		}
+		info.hideType = hideType(prev)
 
 		startOff := lprog.Fset.Position(lit.Pos()).Offset
 		endOff := lprog.Fset.Position(lit.End()).Offset
-		newlit, lines := zeroValue(pkg.Pkg, lit, typ, name)
+		newlit, lines := zeroValue(pkg.Pkg, lit, info)
 
 		var out output
 		out, err = prepareOutput(newlit, lines, startOff, endOff)
@@ -530,6 +550,19 @@ func byLine(lprog *loader.Program, path string, pkg *loader.PackageInfo, line in
 	}
 
 	return json.NewEncoder(os.Stdout).Encode(outs)
+}
+
+func hideType(t types.Type) bool {
+	switch t.(type) {
+	case *types.Array:
+		return true
+	case *types.Map:
+		return true
+	case *types.Slice:
+		return true
+	default:
+		return false
+	}
 }
 
 type output struct {
