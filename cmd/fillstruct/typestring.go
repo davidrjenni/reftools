@@ -43,15 +43,17 @@ import (
 )
 
 type typeWriter struct {
-	buf      *bytes.Buffer
-	pkg      *types.Package
-	hasError bool
+	buf         *bytes.Buffer
+	pkg         *types.Package
+	hasError    bool
+	importNames map[string]string
 }
 
-func typeString(pkg *types.Package, typ types.Type) (string, bool) {
+func typeString(pkg *types.Package, importNames map[string]string, typ types.Type) (string, bool) {
 	w := typeWriter{
-		buf: &bytes.Buffer{},
-		pkg: pkg,
+		buf:         &bytes.Buffer{},
+		pkg:         pkg,
+		importNames: importNames,
 	}
 	w.writeType(typ, make([]types.Type, 0, 8))
 	return w.buf.String(), !w.hasError
@@ -184,7 +186,16 @@ func (w *typeWriter) writeType(typ types.Type, visited []types.Type) {
 
 	case *types.Named:
 		if isImported(w.pkg, t) && t.Obj().Pkg() != nil {
-			w.buf.WriteString(fmt.Sprintf("%s.%s", t.Obj().Pkg().Name(), t.Obj().Name()))
+			pkg := t.Obj().Pkg()
+			if name, ok := w.importNames[pkg.Path()]; ok {
+				if name == "." {
+					w.buf.WriteString(t.Obj().Name())
+				} else {
+					w.buf.WriteString(fmt.Sprintf("%s.%s", name, t.Obj().Name()))
+				}
+			} else {
+				w.buf.WriteString(fmt.Sprintf("%s.%s", pkg.Name(), t.Obj().Name()))
+			}
 		} else {
 			w.buf.WriteString(t.Obj().Name())
 		}

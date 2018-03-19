@@ -92,19 +92,21 @@ type litInfo struct {
 }
 
 type filler struct {
-	pkg      *types.Package
-	pos      token.Pos
-	lines    int
-	existing map[string]*ast.KeyValueExpr
-	first    bool
+	pkg         *types.Package
+	pos         token.Pos
+	lines       int
+	existing    map[string]*ast.KeyValueExpr
+	first       bool
+	importNames map[string]string // import path -> import name
 }
 
-func zeroValue(pkg *types.Package, lit *ast.CompositeLit, info litInfo) (ast.Expr, int) {
+func zeroValue(pkg *types.Package, importNames map[string]string, lit *ast.CompositeLit, info litInfo) (ast.Expr, int) {
 	f := filler{
-		pkg:      pkg,
-		pos:      1,
-		first:    true,
-		existing: make(map[string]*ast.KeyValueExpr),
+		pkg:         pkg,
+		pos:         1,
+		first:       true,
+		existing:    make(map[string]*ast.KeyValueExpr),
+		importNames: importNames,
 	}
 	for _, e := range lit.Elts {
 		kv := e.(*ast.KeyValueExpr)
@@ -142,11 +144,11 @@ func (f *filler) zero(info litInfo, visited []types.Type) ast.Expr {
 	case *types.Interface:
 		return &ast.Ident{Name: "nil", NamePos: f.pos}
 	case *types.Map:
-		keyTypeName, ok := typeString(f.pkg, t.Key())
+		keyTypeName, ok := typeString(f.pkg, f.importNames, t.Key())
 		if !ok {
 			return nil
 		}
-		valTypeName, ok := typeString(f.pkg, t.Elem())
+		valTypeName, ok := typeString(f.pkg, f.importNames, t.Elem())
 		if !ok {
 			return nil
 		}
@@ -178,7 +180,7 @@ func (f *filler) zero(info litInfo, visited []types.Type) ast.Expr {
 	case *types.Array:
 		lit := &ast.CompositeLit{Lbrace: f.pos}
 		if !info.hideType {
-			typeName, ok := typeString(f.pkg, t.Elem())
+			typeName, ok := typeString(f.pkg, f.importNames, t.Elem())
 			if !ok {
 				return nil
 			}
@@ -220,7 +222,7 @@ func (f *filler) zero(info litInfo, visited []types.Type) ast.Expr {
 	case *types.Struct:
 		newlit := &ast.CompositeLit{Lbrace: f.pos}
 		if !info.hideType && info.name != nil {
-			typeName, ok := typeString(f.pkg, info.name)
+			typeName, ok := typeString(f.pkg, f.importNames, info.name)
 			if !ok {
 				return nil
 			}
@@ -229,7 +231,7 @@ func (f *filler) zero(info litInfo, visited []types.Type) ast.Expr {
 				newlit.Type.(*ast.Ident).Name = "&" + newlit.Type.(*ast.Ident).Name
 			}
 		} else if !info.hideType && info.name == nil {
-			typeName, ok := typeString(f.pkg, t)
+			typeName, ok := typeString(f.pkg, f.importNames, t)
 			if !ok {
 				return nil
 			}
@@ -448,7 +450,8 @@ func byOffset(lprog *loader.Program, path string, offset int) error {
 	start := lprog.Fset.Position(lit.Pos()).Offset
 	end := lprog.Fset.Position(lit.End()).Offset
 
-	newlit, lines := zeroValue(pkg.Pkg, lit, litInfo)
+	importNames := buildImportNameMap(f)
+	newlit, lines := zeroValue(pkg.Pkg, importNames, lit, litInfo)
 	out, err := prepareOutput(newlit, lines, start, end)
 	if err != nil {
 		return err
@@ -506,6 +509,7 @@ func byLine(lprog *loader.Program, path string, line int) (err error) {
 	if f == nil || pkg == nil {
 		return fmt.Errorf("could not find file %q", path)
 	}
+	importNames := buildImportNameMap(f)
 
 	var outs []output
 	var prev types.Type
@@ -532,7 +536,7 @@ func byLine(lprog *loader.Program, path string, line int) (err error) {
 
 		startOff := lprog.Fset.Position(lit.Pos()).Offset
 		endOff := lprog.Fset.Position(lit.End()).Offset
-		newlit, lines := zeroValue(pkg.Pkg, lit, info)
+		newlit, lines := zeroValue(pkg.Pkg, importNames, lit, info)
 
 		var out output
 		out, err = prepareOutput(newlit, lines, startOff, endOff)
@@ -568,6 +572,17 @@ func hideType(t types.Type) bool {
 	default:
 		return false
 	}
+}
+
+func buildImportNameMap(f *ast.File) map[string]string {
+	imports := make(map[string]string)
+	for _, i := range f.Imports {
+		if i.Name != nil && i.Name.Name != "_" {
+			path := i.Path.Value
+			imports[path[1:len(path)-1]] = i.Name.Name
+		}
+	}
+	return imports
 }
 
 type output struct {
