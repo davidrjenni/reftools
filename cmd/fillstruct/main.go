@@ -377,10 +377,9 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	pkg := lprog.InitialPackages()[0]
 
 	if *offset > 0 {
-		err = byOffset(lprog, path, pkg, *offset)
+		err = byOffset(lprog, path, *offset)
 		switch err {
 		case nil:
 			return
@@ -392,7 +391,7 @@ func main() {
 	}
 
 	if *line > 0 {
-		err = byLine(lprog, path, pkg, *line)
+		err = byLine(lprog, path, *line)
 		switch err {
 		case nil:
 			return
@@ -435,8 +434,8 @@ func load(path string, modified bool) (*loader.Program, error) {
 	return conf.Load()
 }
 
-func byOffset(lprog *loader.Program, path string, pkg *loader.PackageInfo, offset int) error {
-	f, pos, err := findPos(lprog, path, offset)
+func byOffset(lprog *loader.Program, path string, offset int) error {
+	f, pkg, pos, err := findPos(lprog, path, offset)
 	if err != nil {
 		return err
 	}
@@ -457,19 +456,21 @@ func byOffset(lprog *loader.Program, path string, pkg *loader.PackageInfo, offse
 	return json.NewEncoder(os.Stdout).Encode([]output{out})
 }
 
-func findPos(lprog *loader.Program, filename string, off int) (*ast.File, token.Pos, error) {
-	for _, f := range lprog.InitialPackages()[0].Files {
-		if file := lprog.Fset.File(f.Pos()); file.Name() == filename {
-			if off > file.Size() {
-				return nil, 0,
-					fmt.Errorf("file size (%d) is smaller than given offset (%d)",
-						file.Size(), off)
+func findPos(lprog *loader.Program, filename string, off int) (*ast.File, *loader.PackageInfo, token.Pos, error) {
+	for _, pkg := range lprog.InitialPackages() {
+		for _, f := range pkg.Files {
+			if file := lprog.Fset.File(f.Pos()); file.Name() == filename {
+				if off > file.Size() {
+					return nil, nil, 0,
+						fmt.Errorf("file size (%d) is smaller than given offset (%d)",
+							file.Size(), off)
+				}
+				return f, pkg, file.Pos(off), nil
 			}
-			return f, file.Pos(off), nil
 		}
 	}
 
-	return nil, 0, fmt.Errorf("could not find file %q", filename)
+	return nil, nil, 0, fmt.Errorf("could not find file %q", filename)
 }
 
 func findCompositeLit(f *ast.File, info types.Info, pos token.Pos) (*ast.CompositeLit, litInfo, error) {
@@ -491,14 +492,18 @@ func findCompositeLit(f *ast.File, info types.Info, pos token.Pos) (*ast.Composi
 	return nil, linfo, errNotFound
 }
 
-func byLine(lprog *loader.Program, path string, pkg *loader.PackageInfo, line int) (err error) {
+func byLine(lprog *loader.Program, path string, line int) (err error) {
 	var f *ast.File
-	for _, af := range lprog.InitialPackages()[0].Files {
-		if file := lprog.Fset.File(af.Pos()); file.Name() == path {
-			f = af
+	var pkg *loader.PackageInfo
+	for _, p := range lprog.InitialPackages() {
+		for _, af := range p.Files {
+			if file := lprog.Fset.File(af.Pos()); file.Name() == path {
+				f = af
+				pkg = p
+			}
 		}
 	}
-	if f == nil {
+	if f == nil || pkg == nil {
 		return fmt.Errorf("could not find file %q", path)
 	}
 
