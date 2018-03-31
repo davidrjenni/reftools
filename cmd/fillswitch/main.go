@@ -198,12 +198,11 @@ func allowErrors(lconf *loader.Config) {
 }
 
 func byOffset(lprog *loader.Program, path string, offset int, dst io.Writer) error {
-	f, pos, err := findPos(lprog, path, offset)
+	f, pkg, pos, err := findPos(lprog, path, offset)
 	if err != nil {
 		return err
 	}
 
-	pkg := lprog.InitialPackages()[0]
 	swtch, typ, err := findSwitchStmt(f, pkg.Info, pos)
 	if err != nil {
 		return err
@@ -220,17 +219,19 @@ func byOffset(lprog *loader.Program, path string, offset int, dst io.Writer) err
 	return json.NewEncoder(dst).Encode([]output{out})
 }
 
-func findPos(lprog *loader.Program, path string, offset int) (*ast.File, token.Pos, error) {
-	for _, f := range lprog.InitialPackages()[0].Files {
-		if file := lprog.Fset.File(f.Pos()); file.Name() == path {
-			if offset > file.Size() {
-				return nil, 0,
-					fmt.Errorf("file size (%d) is smaller than given offset (%d)", file.Size(), offset)
+func findPos(lprog *loader.Program, path string, offset int) (*ast.File, *loader.PackageInfo, token.Pos, error) {
+	for _, pkg := range lprog.InitialPackages() {
+		for _, f := range pkg.Files {
+			if file := lprog.Fset.File(f.Pos()); file.Name() == path {
+				if offset > file.Size() {
+					return nil, nil, 0,
+						fmt.Errorf("file size (%d) is smaller than given offset (%d)", file.Size(), offset)
+				}
+				return f, pkg, file.Pos(offset), nil
 			}
-			return f, file.Pos(offset), nil
 		}
 	}
-	return nil, 0, fmt.Errorf("could not find file %q", path)
+	return nil, nil, 0, fmt.Errorf("could not find file %q", path)
 }
 
 func findSwitchStmt(f *ast.File, info types.Info, pos token.Pos) (ast.Stmt, types.Type, error) {
@@ -257,15 +258,17 @@ func findSwitchStmt(f *ast.File, info types.Info, pos token.Pos) (ast.Stmt, type
 }
 
 func byLine(lprog *loader.Program, path string, line int, dst io.Writer) (err error) {
-	pkg := lprog.InitialPackages()[0]
-
 	var f *ast.File
-	for _, af := range lprog.InitialPackages()[0].Files {
-		if file := lprog.Fset.File(af.Pos()); file.Name() == path {
-			f = af
+	var pkg *loader.PackageInfo
+	for _, p := range lprog.InitialPackages() {
+		for _, af := range p.Files {
+			if file := lprog.Fset.File(af.Pos()); file.Name() == path {
+				f = af
+				pkg = p
+			}
 		}
 	}
-	if f == nil {
+	if f == nil || pkg == nil {
 		return fmt.Errorf("could not find file %q", path)
 	}
 

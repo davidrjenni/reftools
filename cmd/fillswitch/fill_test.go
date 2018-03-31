@@ -25,6 +25,7 @@ func TestFillByOffset(t *testing.T) {
 		{folder: "broken_typeswitch", offset: 146},
 		{folder: "switch_1", offset: 78},
 		{folder: "empty_switch", offset: 34},
+		{folder: "multipkgs", offset: 75},
 	}
 
 	for _, test := range tests {
