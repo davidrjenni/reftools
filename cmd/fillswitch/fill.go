@@ -14,6 +14,11 @@ import (
 )
 
 func fillSwitch(pkg *loader.PackageInfo, lprog *loader.Program, swtch ast.Stmt, typ types.Type) ast.Stmt {
+	// Do not try to fill an empty switch statement (with no tag expression and therefore typ == nil).
+	if typ == nil {
+		return swtch
+	}
+
 	switch swtch := swtch.(type) {
 	case *ast.SwitchStmt:
 		existing := make(map[string]bool)
