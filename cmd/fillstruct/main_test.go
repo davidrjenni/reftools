@@ -511,13 +511,48 @@ type otherStruct struct {
 	},
 }`,
 		},
+		{
+			name: "renamed imports",
+			src: `package p
+
+import (
+	goast "go/ast"
+	. "io"
+	_ "io"
+)
+
+var s = myStruct{}
+
+type myStruct struct {
+	a *goast.Ident
+	b LimitedReader
+}
+`,
+			want: `myStruct{
+	a: &goast.Ident{
+		NamePos: 0,
+		Name:    "",
+		Obj: &goast.Object{
+			Kind: 0,
+			Name: "",
+			Decl: nil,
+			Data: nil,
+			Type: nil,
+		},
+	},
+	b: LimitedReader{
+		R: nil,
+		N: 0,
+	},
+}`,
+		},
 	}
 
 	for _, test := range tests {
-		pkg, lit, typ := parseStruct(t, test.name, test.src)
+		pkg, importNames, lit, typ := parseStruct(t, test.name, test.src)
 
 		name := types.NewNamed(types.NewTypeName(0, pkg, "myStruct", nil), typ, nil)
-		newlit, lines := zeroValue(pkg, lit, litInfo{typ: typ, name: name})
+		newlit, lines := zeroValue(pkg, importNames, lit, litInfo{typ: typ, name: name})
 
 		out := printNode(t, test.name, newlit, lines)
 		if test.want != out {
@@ -526,7 +561,7 @@ type otherStruct struct {
 	}
 }
 
-func parseStruct(t *testing.T, filename, src string) (*types.Package, *ast.CompositeLit, *types.Struct) {
+func parseStruct(t *testing.T, filename, src string) (*types.Package, map[string]string, *ast.CompositeLit, *types.Struct) {
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, filename, src, parser.ParseComments)
 	if err != nil {
@@ -538,10 +573,12 @@ func parseStruct(t *testing.T, filename, src string) (*types.Package, *ast.Compo
 		Importer: importer.Default(),
 		Error:    func(err error) {},
 	}
+
 	pkg, _ := conf.Check(f.Name.Name, fset, []*ast.File{f}, &info)
+	importNames := buildImportNameMap(f)
 
 	expr := f.Decls[1].(*ast.GenDecl).Specs[0].(*ast.ValueSpec).Values[0]
-	return pkg, expr.(*ast.CompositeLit), info.Types[expr].Type.Underlying().(*types.Struct)
+	return pkg, importNames, expr.(*ast.CompositeLit), info.Types[expr].Type.Underlying().(*types.Struct)
 }
 
 func printNode(t *testing.T, name string, n ast.Node, lines int) string {
