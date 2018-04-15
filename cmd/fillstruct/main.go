@@ -615,5 +615,5 @@ func allowErrors(conf *loader.Config) {
 	conf.Build = &ctxt
 	conf.AllowErrors = true
 	conf.ParserMode = parser.AllErrors
-	conf.TypeChecker.Error = func(err error) {}
+	conf.TypeChecker.Error = func(error) {}
 }
