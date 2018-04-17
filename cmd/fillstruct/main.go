@@ -189,10 +189,10 @@ func byOffset(lprog *loader.Program, path string, offset int) error {
 	return json.NewEncoder(os.Stdout).Encode([]output{out})
 }
 
-func findPos(lprog *loader.Program, filename string, off int) (*ast.File, *loader.PackageInfo, token.Pos, error) {
+func findPos(lprog *loader.Program, path string, off int) (*ast.File, *loader.PackageInfo, token.Pos, error) {
 	for _, pkg := range lprog.InitialPackages() {
 		for _, f := range pkg.Files {
-			if file := lprog.Fset.File(f.Pos()); file.Name() == filename {
+			if file := lprog.Fset.File(f.Pos()); file.Name() == path {
 				if off > file.Size() {
 					return nil, nil, 0,
 						fmt.Errorf("file size (%d) is smaller than given offset (%d)",
@@ -203,7 +203,7 @@ func findPos(lprog *loader.Program, filename string, off int) (*ast.File, *loade
 		}
 	}
 
-	return nil, nil, 0, fmt.Errorf("could not find file %q", filename)
+	return nil, nil, 0, fmt.Errorf("could not find file %q", path)
 }
 
 func findCompositeLit(f *ast.File, info types.Info, pos token.Pos) (*ast.CompositeLit, litInfo, error) {
