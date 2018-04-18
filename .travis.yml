@@ -2,8 +2,9 @@ language: go
 
 env: GO15VENDOREXPERIMENT=1 # support vendor/ for Go 1.5.x
 
+install: true # use vendor/, skip go get
+
 before_install:
-    - touch Makefile # for Travis CI: avoid running go get ./...
     - GO_FILES=$(go list ./... | grep -v /vendor/ | grep -v /test-fixtures/) # avoid vetting vendor/ for Go < 1.9.x and the test fixtures
     - go get github.com/golang/lint/golint
     - go get honnef.co/go/tools/cmd/megacheck
