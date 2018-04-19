@@ -10,7 +10,7 @@ before_install:
     - go get honnef.co/go/tools/cmd/megacheck
 
 script:
-    - golint $GO_FILES
+    - golint -set_exit_status $GO_FILES
     - megacheck $GO_FILES
     - go vet $GO_FILES
     - go test -race -v $GO_FILES
