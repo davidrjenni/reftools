@@ -396,18 +396,19 @@ var s = myStruct{}
 type myStruct struct {
 	pkg  *types.Package
 	fset *token.FileSet
-	lit  *ast.CompositeLit
+	lit  *ast.CallExpr
 	typ  *types.Struct
 	name *types.Named
 }`,
 			want: `myStruct{
 	pkg:  &types.Package{},
 	fset: &token.FileSet{},
-	lit: &ast.CompositeLit{
-		Type:   nil,
-		Lbrace: 0,
-		Elts:   nil,
-		Rbrace: 0,
+	lit: &ast.CallExpr{
+		Fun:      nil,
+		Lbrace:   0,
+		Args:     nil,
+		Ellipsis: 0,
+		Rbrace:   0,
 	},
 	typ:  &types.Struct{},
 	name: &types.Named{},
