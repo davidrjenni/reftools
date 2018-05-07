@@ -405,10 +405,10 @@ type myStruct struct {
 	fset: &token.FileSet{},
 	lit: &ast.CallExpr{
 		Fun:      nil,
-		Lbrace:   0,
+		Lparen:   0,
 		Args:     nil,
 		Ellipsis: 0,
-		Rbrace:   0,
+		Rparen:   0,
 	},
 	typ:  &types.Struct{},
 	name: &types.Named{},
