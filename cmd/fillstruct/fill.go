@@ -133,7 +133,38 @@ func (f *filler) zero(info litInfo, visited []types.Type) ast.Expr {
 		f.lines += 2
 		return lit
 	case *types.Signature:
-		return &ast.Ident{Name: "nil", NamePos: f.pos}
+		params := make([]*ast.Field, t.Params().Len())
+		for i := 0; i < t.Params().Len(); i++ {
+			typeName, ok := typeString(f.pkg, f.importNames, t.Params().At(i).Type())
+			if !ok {
+				return nil
+			}
+			params[i] = &ast.Field{
+				Type: ast.NewIdent(typeName),
+			}
+		}
+		results := make([]*ast.Field, t.Results().Len())
+		for i := 0; i < t.Results().Len(); i++ {
+			typeName, ok := typeString(f.pkg, f.importNames, t.Results().At(i).Type())
+			if !ok {
+				return nil
+			}
+			results[i] = &ast.Field{
+				Type: ast.NewIdent(typeName),
+			}
+		}
+		return &ast.FuncLit{
+			Type: &ast.FuncType{
+				Func:    f.pos,
+				Params:  &ast.FieldList{List: params},
+				Results: &ast.FieldList{List: results},
+			},
+			Body: &ast.BlockStmt{
+				List: []ast.Stmt{
+					&ast.ExprStmt{X: ast.NewIdent(`panic("not implemented")`)},
+				},
+			},
+		}
 	case *types.Slice:
 		return &ast.Ident{Name: "nil", NamePos: f.pos}
 
