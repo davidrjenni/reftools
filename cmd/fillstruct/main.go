@@ -61,6 +61,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"errors"
@@ -75,6 +76,8 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+
+	"unicode/utf8"
 
 	"golang.org/x/tools/go/ast/astutil"
 	"golang.org/x/tools/go/buildutil"
@@ -167,7 +170,25 @@ func load(path string, modified bool) (*loader.Program, error) {
 }
 
 func byOffset(lprog *loader.Program, path string, offset int) error {
-	f, pkg, pos, err := findPos(lprog, path, offset)
+	file, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	reader := bufio.NewReader(file)
+	if err != nil {
+		return err
+	}
+
+	offsetBytes := 0
+	for i := 0; i < offset; i++ {
+		_, size, err := reader.ReadRune()
+		if err != nil {
+			return err
+		}
+		offsetBytes += size
+	}
+
+	f, pkg, pos, err := findPos(lprog, path, offsetBytes)
 	if err != nil {
 		return err
 	}
@@ -177,12 +198,30 @@ func byOffset(lprog *loader.Program, path string, offset int) error {
 		return err
 	}
 
-	start := lprog.Fset.Position(lit.Pos()).Offset
-	end := lprog.Fset.Position(lit.End()).Offset
+	startOff := lprog.Fset.Position(lit.Pos()).Offset
+	endOff := lprog.Fset.Position(lit.End()).Offset
 
 	importNames := buildImportNameMap(f)
 	newlit, lines := zeroValue(pkg.Pkg, importNames, lit, litInfo)
-	out, err := prepareOutput(newlit, lines, start, end)
+
+	file.Seek(0, 0)
+	b := make([]byte, startOff)
+	defer file.Close()
+	size, err := file.Read(b)
+	if err != nil || size != startOff {
+		panic(err)
+	}
+	startOffUTF8 := utf8.RuneCount(b)
+
+	b2 := make([]byte, endOff-startOff)
+	size, err = file.Read(b2)
+	if err != nil || size != endOff-startOff {
+		panic(err)
+	}
+
+	endOffUTF8 := startOffUTF8 + utf8.RuneCount(b2)
+
+	out, err := prepareOutput(newlit, lines, startOffUTF8, endOffUTF8)
 	if err != nil {
 		return err
 	}
@@ -266,10 +305,31 @@ func byLine(lprog *loader.Program, path string, line int) (err error) {
 
 		startOff := lprog.Fset.Position(lit.Pos()).Offset
 		endOff := lprog.Fset.Position(lit.End()).Offset
+
+		b := make([]byte, startOff)
+		file, err := os.Open(lprog.Fset.Position(lit.Pos()).Filename)
+		if err != nil {
+			panic(err)
+		}
+		defer file.Close()
+		size, err := file.Read(b)
+		if err != nil || size != startOff {
+			panic(err)
+		}
+		startOffUTF8 := utf8.RuneCount(b)
+
+		b2 := make([]byte, endOff-startOff)
+		size, err = file.Read(b2)
+		if err != nil || size != endOff-startOff {
+			panic(err)
+		}
+
+		endOffUTF8 := startOffUTF8 + utf8.RuneCount(b2)
+
 		newlit, lines := zeroValue(pkg.Pkg, importNames, lit, info)
 
 		var out output
-		out, err = prepareOutput(newlit, lines, startOff, endOff)
+		out, err = prepareOutput(newlit, lines, startOffUTF8, endOffUTF8)
 		if err != nil {
 			return false
 		}
