@@ -569,8 +569,6 @@ type myStruct struct {
 	}
 
 	for _, test := range tests {
-		if test.name == "advanced arrays" {
-		}
 		pkg, importNames, lit, typ := parseStruct(t, test.name, test.src)
 
 		name := types.NewNamed(types.NewTypeName(0, pkg, "myStruct", nil), typ, nil)
