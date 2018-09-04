@@ -70,7 +70,37 @@ func (f *filler) zero(info litInfo, visited []types.Type) ast.Expr {
 			return nil
 		}
 	case *types.Chan:
-		return &ast.Ident{Name: "nil", NamePos: f.pos}
+		valTypeName, ok := typeString(f.pkg, f.importNames, t.Elem())
+		if !ok {
+			return nil
+		}
+
+		var dir ast.ChanDir
+		switch t.Dir() {
+		case types.SendRecv:
+			dir = ast.SEND | ast.RECV
+		case types.SendOnly:
+			dir = ast.SEND
+		case types.RecvOnly:
+			dir = ast.RECV
+		}
+
+		mkcall := &ast.CallExpr{
+			Fun: &ast.Ident{
+				NamePos: f.pos,
+				Name:    "make",
+			},
+			Lparen: f.pos,
+			Args: []ast.Expr{
+				&ast.ChanType{
+					Dir:   dir,
+					Value: ast.NewIdent(valTypeName),
+				},
+			},
+			Rparen: f.pos,
+		}
+
+		return mkcall
 	case *types.Interface:
 		return &ast.Ident{Name: "nil", NamePos: f.pos}
 	case *types.Map:
