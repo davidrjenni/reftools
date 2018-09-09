@@ -148,7 +148,7 @@ func (w *typeWriter) writeType(typ types.Type, visited []types.Type) {
 			if i > 0 || t.NumMethods() > 0 {
 				w.buf.WriteString("; ")
 			}
-			w.writeType(t.Embedded(i), visited)
+			w.writeType(embeddedType(t, i), visited)
 		}
 		w.buf.WriteByte('}')
 

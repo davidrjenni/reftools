@@ -134,7 +134,7 @@ func writeType(buf *bytes.Buffer, pkg *types.Package, typ types.Type, visited []
 			if i > 0 || t.NumMethods() > 0 {
 				buf.WriteString("; ")
 			}
-			writeType(buf, pkg, t.Embedded(i), visited)
+			writeType(buf, pkg, embeddedType(t, i), visited)
 		}
 		buf.WriteByte('}')
 
