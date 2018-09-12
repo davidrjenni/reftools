@@ -1,5 +1,10 @@
+[prune]
+  unused-packages = true
+  non-go = true
+  go-tests = true
+
 [[constraint]]
-  branch = "master"
+  version = "1.0.0"
   name = "github.com/kisielk/gotool"
 
 [[constraint]]
