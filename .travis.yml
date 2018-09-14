@@ -1,22 +1,11 @@
 language: go
+
 sudo: false
 
-install: true # use vendor/, skip go get
-
-before_install:
-    - GO_FILES=$(go list ./... | grep -v /vendor/ | grep -v /test-fixtures/) # avoid vetting vendor/ for Go < 1.9.x and the test fixtures
-    - go get golang.org/x/lint/golint
-    - go get honnef.co/go/tools/cmd/megacheck
-    - go get github.com/mdempsky/unconvert
-    - go get github.com/mdempsky/maligned
-
-script:
-    - golint -set_exit_status $GO_FILES
-    - megacheck $GO_FILES
-    - unconvert $GO_FILES
-    - maligned $GO_FILES
-    - go vet $GO_FILES
-    - go test -race -v $GO_FILES
+notifications:
+    email:
+        on_success: change
+        on_failure: always
 
 go:
     - 1.10.x
@@ -26,3 +15,20 @@ go:
 os:
     - linux
     - osx
+
+before_install:
+    - GO_FILES=$(go list ./... | grep -v /vendor/ | grep -v /test-fixtures/)
+    - go get -v golang.org/x/lint/golint
+    - go get -v honnef.co/go/tools/cmd/megacheck
+    - go get -v github.com/mdempsky/unconvert
+    - go get -v github.com/mdempsky/maligned
+
+install: true
+
+script:
+    - golint -set_exit_status $GO_FILES
+    - megacheck $GO_FILES
+    - unconvert $GO_FILES
+    - maligned $GO_FILES
+    - go vet $GO_FILES
+    - go test -race -v $GO_FILES
