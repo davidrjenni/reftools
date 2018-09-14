@@ -51,6 +51,27 @@ type myStruct struct {
 }`,
 		},
 		{
+			name: "make",
+			src: `package p
+
+import "io"
+
+var s = myStruct{}
+
+type myStruct struct {
+	a chan int
+	b chan myStruct
+	c chan interface{}
+	d chan io.Writer
+}`,
+			want: `myStruct{
+	a: make(chan int),
+	b: make(chan myStruct),
+	c: make(chan interface{}),
+	d: make(chan io.Writer),
+}`,
+		},
+		{
 			name: "all nil",
 			src: `package p
 
@@ -60,7 +81,6 @@ var s = myStruct{}
 
 type myStruct struct {
 	a *int
-	b chan int
 	c interface{}
 	d io.Writer
 	f func(int) bool
@@ -68,7 +88,6 @@ type myStruct struct {
 }`,
 			want: `myStruct{
 	a: nil,
-	b: nil,
 	c: nil,
 	d: nil,
 	f: nil,
@@ -222,19 +241,19 @@ type myStruct struct {
 }`,
 			want: `myStruct{
 	a: [3]chan struct{}{
-		nil,
-		nil,
-		nil,
+		make(chan struct{}),
+		make(chan struct{}),
+		make(chan struct{}),
 	},
 	b: [3]chan<- struct{}{
-		nil,
-		nil,
-		nil,
+		make(chan<- struct{}),
+		make(chan<- struct{}),
+		make(chan<- struct{}),
 	},
 	c: [3]<-chan struct{}{
-		nil,
-		nil,
-		nil,
+		make(<-chan struct{}),
+		make(<-chan struct{}),
+		make(<-chan struct{}),
 	},
 	d: [3]func(struct{}, interface{}) bool{
 		nil,
@@ -255,7 +274,7 @@ type myStruct struct {
 		nil,
 	},
 	g: [1]chan (<-chan struct{}){
-		nil,
+		make(chan <-chan struct{}),
 	},
 	h: [1]interface{foo(x unsafe.Pointer, args ...string)}{
 		nil,
