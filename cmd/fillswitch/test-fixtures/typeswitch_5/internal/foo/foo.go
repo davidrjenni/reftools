@@ -12,7 +12,7 @@ func (r NopReader2) Read(p []byte) (int, error) {
 	return 0, nil
 }
 
-type unexportedNopReader {}
+type unexportedNopReader ??? {}
 
 func (r *unexportedNopReader) Read(p []byte) (int, error) {
 	return 0, nil
