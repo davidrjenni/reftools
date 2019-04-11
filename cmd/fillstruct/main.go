@@ -67,9 +67,7 @@ import (
 	"flag"
 	"fmt"
 	"go/ast"
-	"go/build"
 	"go/format"
-	"go/parser"
 	"go/token"
 	"go/types"
 	"log"
@@ -78,7 +76,7 @@ import (
 
 	"golang.org/x/tools/go/ast/astutil"
 	"golang.org/x/tools/go/buildutil"
-	"golang.org/x/tools/go/loader"
+	"golang.org/x/tools/go/packages"
 )
 
 var errNotFound = errors.New("no struct literal found at selection")
@@ -105,13 +103,30 @@ func main() {
 		log.Fatal(err)
 	}
 
-	lprog, err := load(path, *modified)
+	var overlay map[string][]byte
+	if *modified {
+		overlay, err = buildutil.ParseOverlayArchive(os.Stdin)
+		if err != nil {
+			log.Fatalf("invalid archive: %v", err)
+		}
+	}
+
+	cfg := &packages.Config{
+		Overlay: overlay,
+		Mode:    packages.LoadAllSyntax,
+		Tests:   true,
+		Dir:     filepath.Dir(path),
+		Fset:    token.NewFileSet(),
+		Env:     os.Environ(),
+	}
+
+	pkgs, err := packages.Load(cfg, path)
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	if *offset > 0 {
-		err = byOffset(lprog, path, *offset)
+		err = byOffset(pkgs, path, *offset)
 		switch err {
 		case nil:
 			return
@@ -123,7 +138,7 @@ func main() {
 	}
 
 	if *line > 0 {
-		err = byLine(lprog, path, *line)
+		err = byLine(pkgs, path, *line)
 		switch err {
 		case nil:
 			return
@@ -143,45 +158,22 @@ func absPath(filename string) (string, error) {
 	return filepath.Abs(eval)
 }
 
-func load(path string, modified bool) (*loader.Program, error) {
-	ctx := &build.Default
-	if modified {
-		archive, err := buildutil.ParseOverlayArchive(os.Stdin)
-		if err != nil {
-			return nil, err
-		}
-		ctx = buildutil.OverlayContext(ctx, archive)
-	}
-	cwd, err := os.Getwd()
-	if err != nil {
-		return nil, err
-	}
-	pkg, err := buildutil.ContainingPackage(ctx, cwd, path)
-	if err != nil {
-		return nil, err
-	}
-	conf := &loader.Config{Build: ctx}
-	allowErrors(conf)
-	conf.ImportWithTests(pkg.ImportPath)
-	return conf.Load()
-}
-
-func byOffset(lprog *loader.Program, path string, offset int) error {
+func byOffset(lprog []*packages.Package, path string, offset int) error {
 	f, pkg, pos, err := findPos(lprog, path, offset)
 	if err != nil {
 		return err
 	}
 
-	lit, litInfo, err := findCompositeLit(f, pkg.Info, pos)
+	lit, litInfo, err := findCompositeLit(f, pkg.TypesInfo, pos)
 	if err != nil {
 		return err
 	}
 
-	start := lprog.Fset.Position(lit.Pos()).Offset
-	end := lprog.Fset.Position(lit.End()).Offset
+	start := lprog[0].Fset.Position(lit.Pos()).Offset
+	end := lprog[0].Fset.Position(lit.End()).Offset
 
 	importNames := buildImportNameMap(f)
-	newlit, lines := zeroValue(pkg.Pkg, importNames, lit, litInfo)
+	newlit, lines := zeroValue(pkg.Types, importNames, lit, litInfo)
 	out, err := prepareOutput(newlit, lines, start, end)
 	if err != nil {
 		return err
@@ -189,10 +181,10 @@ func byOffset(lprog *loader.Program, path string, offset int) error {
 	return json.NewEncoder(os.Stdout).Encode([]output{out})
 }
 
-func findPos(lprog *loader.Program, path string, off int) (*ast.File, *loader.PackageInfo, token.Pos, error) {
-	for _, pkg := range lprog.InitialPackages() {
-		for _, f := range pkg.Files {
-			if file := lprog.Fset.File(f.Pos()); file.Name() == path {
+func findPos(lprog []*packages.Package, path string, off int) (*ast.File, *packages.Package, token.Pos, error) {
+	for _, pkg := range lprog {
+		for _, f := range pkg.Syntax {
+			if file := pkg.Fset.File(f.Pos()); file.Name() == path {
 				if off > file.Size() {
 					return nil, nil, 0,
 						fmt.Errorf("file size (%d) is smaller than given offset (%d)",
@@ -206,7 +198,7 @@ func findPos(lprog *loader.Program, path string, off int) (*ast.File, *loader.Pa
 	return nil, nil, 0, fmt.Errorf("could not find file %q", path)
 }
 
-func findCompositeLit(f *ast.File, info types.Info, pos token.Pos) (*ast.CompositeLit, litInfo, error) {
+func findCompositeLit(f *ast.File, info *types.Info, pos token.Pos) (*ast.CompositeLit, litInfo, error) {
 	var linfo litInfo
 	path, _ := astutil.PathEnclosingInterval(f, pos, pos)
 	for i, n := range path {
@@ -225,12 +217,12 @@ func findCompositeLit(f *ast.File, info types.Info, pos token.Pos) (*ast.Composi
 	return nil, linfo, errNotFound
 }
 
-func byLine(lprog *loader.Program, path string, line int) (err error) {
+func byLine(lprog []*packages.Package, path string, line int) (err error) {
 	var f *ast.File
-	var pkg *loader.PackageInfo
-	for _, p := range lprog.InitialPackages() {
-		for _, af := range p.Files {
-			if file := lprog.Fset.File(af.Pos()); file.Name() == path {
+	var pkg *packages.Package
+	for _, p := range lprog {
+		for _, af := range p.Syntax {
+			if file := p.Fset.File(af.Pos()); file.Name() == path {
 				f = af
 				pkg = p
 			}
@@ -248,25 +240,26 @@ func byLine(lprog *loader.Program, path string, line int) (err error) {
 		if !ok {
 			return true
 		}
-		startLine := lprog.Fset.Position(lit.Pos()).Line
-		endLine := lprog.Fset.Position(lit.End()).Line
+		startLine := pkg.Fset.Position(lit.Pos()).Line
+		endLine := pkg.Fset.Position(lit.End()).Line
+
 		if !(startLine <= line && line <= endLine) {
 			return true
 		}
 
 		var info litInfo
-		info.name, _ = pkg.Types[lit].Type.(*types.Named)
-		info.typ, ok = pkg.Types[lit].Type.Underlying().(*types.Struct)
+		info.name, _ = pkg.TypesInfo.Types[lit].Type.(*types.Named)
+		info.typ, ok = pkg.TypesInfo.Types[lit].Type.Underlying().(*types.Struct)
 		if !ok {
-			prev = pkg.Types[lit].Type.Underlying()
+			prev = pkg.TypesInfo.Types[lit].Type.Underlying()
 			err = errNotFound
 			return true
 		}
 		info.hideType = hideType(prev)
 
-		startOff := lprog.Fset.Position(lit.Pos()).Offset
-		endOff := lprog.Fset.Position(lit.End()).Offset
-		newlit, lines := zeroValue(pkg.Pkg, importNames, lit, info)
+		startOff := pkg.Fset.Position(lit.Pos()).Offset
+		endOff := pkg.Fset.Position(lit.End()).Offset
+		newlit, lines := zeroValue(pkg.Types, importNames, lit, info)
 
 		var out output
 		out, err = prepareOutput(newlit, lines, startOff, endOff)
@@ -337,13 +330,4 @@ func prepareOutput(n ast.Node, lines, start, end int) (output, error) {
 		End:   end,
 		Code:  buf.String(),
 	}, nil
-}
-
-func allowErrors(conf *loader.Config) {
-	ctxt := *conf.Build
-	ctxt.CgoEnabled = false
-	conf.Build = &ctxt
-	conf.AllowErrors = true
-	conf.ParserMode = parser.AllErrors
-	conf.TypeChecker.Error = func(error) {}
 }
