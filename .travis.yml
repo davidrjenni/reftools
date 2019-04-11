@@ -8,8 +8,8 @@ notifications:
         on_failure: always
 
 go:
-    - 1.10.x
     - 1.11.x
+    - 1.12.x
     - tip
 
 os:
@@ -19,7 +19,7 @@ os:
 before_install:
     - GO_FILES=$(go list ./... | grep -v /vendor/ | grep -v /test-fixtures/)
     - go get -v golang.org/x/lint/golint
-    - go get -v honnef.co/go/tools/cmd/megacheck
+    - go get -v honnef.co/go/tools/cmd/staticcheck
     - go get -v github.com/mdempsky/unconvert
     - go get -v github.com/mdempsky/maligned
 
@@ -27,7 +27,7 @@ install: true
 
 script:
     - golint -set_exit_status $GO_FILES
-    - megacheck $GO_FILES
+    - staticcheck $GO_FILES
     - unconvert $GO_FILES
     - maligned $GO_FILES
     - go vet $GO_FILES
