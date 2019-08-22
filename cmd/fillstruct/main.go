@@ -67,7 +67,9 @@ import (
 	"flag"
 	"fmt"
 	"go/ast"
+	"go/build"
 	"go/format"
+	"go/parser"
 	"go/token"
 	"go/types"
 	"log"
@@ -76,38 +78,51 @@ import (
 
 	"golang.org/x/tools/go/ast/astutil"
 	"golang.org/x/tools/go/buildutil"
+	"golang.org/x/tools/go/loader"
 	"golang.org/x/tools/go/packages"
 )
 
 var errNotFound = errors.New("no struct literal found at selection")
 
+var (
+	filename = flag.String("file", "", "filename")
+	modified = flag.Bool("modified", false, "read an archive of modified files from stdin")
+	offset   = flag.Int("offset", 0, "byte offset of the struct literal, optional if -line is present")
+	line     = flag.Int("line", 0, "line number of the struct literal, optional if -offset is present")
+)
+
 func main() {
 	log.SetFlags(0)
 	log.SetPrefix("fillstruct: ")
-
-	var (
-		filename = flag.String("file", "", "filename")
-		modified = flag.Bool("modified", false, "read an archive of modified files from stdin")
-		offset   = flag.Int("offset", 0, "byte offset of the struct literal, optional if -line is present")
-		line     = flag.Int("line", 0, "line number of the struct literal, optional if -offset is present")
-	)
 	flag.Parse()
-
 	if (*offset == 0 && *line == 0) || *filename == "" {
 		flag.PrintDefaults()
 		os.Exit(1)
 	}
+	err := mainModules()
+	if err == nil {
+		return
+	}
+	if err != nil {
+		err = mainNoModules()
+		if err != nil {
+			log.Fatal(err)
+		}
+	}
+}
 
+func mainModules() error {
 	path, err := absPath(*filename)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 
 	var overlay map[string][]byte
 	if *modified {
 		overlay, err = buildutil.ParseOverlayArchive(os.Stdin)
 		if err != nil {
-			log.Fatalf("invalid archive: %v", err)
+			//log.Fatalf("invalid archive: %v", err)
+			return err
 		}
 	}
 
@@ -122,18 +137,18 @@ func main() {
 
 	pkgs, err := packages.Load(cfg, path)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 
 	if *offset > 0 {
 		err = byOffset(pkgs, path, *offset)
 		switch err {
 		case nil:
-			return
+			return nil
 		case errNotFound:
 			// try to use line information
 		default:
-			log.Fatal(err)
+			return err
 		}
 	}
 
@@ -141,13 +156,47 @@ func main() {
 		err = byLine(pkgs, path, *line)
 		switch err {
 		case nil:
-			return
+			return nil
 		default:
-			log.Fatal(err)
+			return err
 		}
 	}
 
-	log.Fatal(errNotFound)
+	return errNotFound
+}
+
+func mainNoModules() error {
+	path, err := absPath(*filename)
+	if err != nil {
+		return err
+	}
+
+	lprog, err := load(path, *modified)
+	if err != nil {
+		return err
+	}
+	if *offset > 0 {
+		err = byOffsetNoModules(lprog, path, *offset)
+		switch err {
+		case nil:
+			return nil
+		case errNotFound:
+			// try to use line information
+		default:
+			return err
+		}
+	}
+	if *line > 0 {
+		err = byLineNoModules(lprog, path, *line)
+		switch err {
+		case nil:
+			return nil
+		default:
+			return err
+		}
+	}
+
+	return errNotFound
 }
 
 func absPath(filename string) (string, error) {
@@ -156,6 +205,29 @@ func absPath(filename string) (string, error) {
 		return "", err
 	}
 	return filepath.Abs(eval)
+}
+
+func load(path string, modified bool) (*loader.Program, error) {
+	ctx := &build.Default
+	if modified {
+		archive, err := buildutil.ParseOverlayArchive(os.Stdin)
+		if err != nil {
+			return nil, err
+		}
+		ctx = buildutil.OverlayContext(ctx, archive)
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return nil, err
+	}
+	pkg, err := buildutil.ContainingPackage(ctx, cwd, path)
+	if err != nil {
+		return nil, err
+	}
+	conf := &loader.Config{Build: ctx}
+	allowErrors(conf)
+	conf.ImportWithTests(pkg.ImportPath)
+	return conf.Load()
 }
 
 func byOffset(lprog []*packages.Package, path string, offset int) error {
@@ -174,6 +246,140 @@ func byOffset(lprog []*packages.Package, path string, offset int) error {
 
 	importNames := buildImportNameMap(f)
 	newlit, lines := zeroValue(pkg.Types, importNames, lit, litInfo)
+	out, err := prepareOutput(newlit, lines, start, end)
+	if err != nil {
+		return err
+	}
+	return json.NewEncoder(os.Stdout).Encode([]output{out})
+}
+
+func allowErrors(conf *loader.Config) {
+	ctxt := *conf.Build
+	ctxt.CgoEnabled = false
+	conf.Build = &ctxt
+	conf.AllowErrors = true
+	conf.ParserMode = parser.AllErrors
+	conf.TypeChecker.Error = func(error) {}
+}
+
+func byLineNoModules(lprog *loader.Program, path string, line int) (err error) {
+	var f *ast.File
+	var pkg *loader.PackageInfo
+	for _, p := range lprog.InitialPackages() {
+		for _, af := range p.Files {
+			if file := lprog.Fset.File(af.Pos()); file.Name() == path {
+				f = af
+				pkg = p
+			}
+		}
+	}
+	if f == nil || pkg == nil {
+		return fmt.Errorf("could not find file %q", path)
+	}
+	importNames := buildImportNameMap(f)
+
+	var outs []output
+	var prev types.Type
+	ast.Inspect(f, func(n ast.Node) bool {
+		lit, ok := n.(*ast.CompositeLit)
+		if !ok {
+			return true
+		}
+		startLine := lprog.Fset.Position(lit.Pos()).Line
+		endLine := lprog.Fset.Position(lit.End()).Line
+		if !(startLine <= line && line <= endLine) {
+			return true
+		}
+
+		var info litInfo
+		info.name, _ = pkg.Types[lit].Type.(*types.Named)
+		info.typ, ok = pkg.Types[lit].Type.Underlying().(*types.Struct)
+		if !ok {
+			prev = pkg.Types[lit].Type.Underlying()
+			err = errNotFound
+			return true
+		}
+		info.hideType = hideType(prev)
+
+		startOff := lprog.Fset.Position(lit.Pos()).Offset
+		endOff := lprog.Fset.Position(lit.End()).Offset
+		newlit, lines := zeroValue(pkg.Pkg, importNames, lit, info)
+
+		var out output
+		out, err = prepareOutput(newlit, lines, startOff, endOff)
+		if err != nil {
+			return false
+		}
+		outs = append(outs, out)
+		return false
+	})
+	if err != nil {
+		return err
+	}
+	if len(outs) == 0 {
+		return errNotFound
+	}
+
+	for i := len(outs)/2 - 1; i >= 0; i-- {
+		opp := len(outs) - 1 - i
+		outs[i], outs[opp] = outs[opp], outs[i]
+	}
+
+	return json.NewEncoder(os.Stdout).Encode(outs)
+}
+
+func findCompositeLitNoModules(f *ast.File, info types.Info, pos token.Pos) (*ast.CompositeLit, litInfo, error) {
+	var linfo litInfo
+	path, _ := astutil.PathEnclosingInterval(f, pos, pos)
+	for i, n := range path {
+		if lit, ok := n.(*ast.CompositeLit); ok {
+			linfo.name, _ = info.Types[lit].Type.(*types.Named)
+			linfo.typ, ok = info.Types[lit].Type.Underlying().(*types.Struct)
+			if !ok {
+				return nil, linfo, errNotFound
+			}
+			if expr, ok := path[i+1].(ast.Expr); ok {
+				linfo.hideType = hideType(info.Types[expr].Type)
+			}
+			return lit, linfo, nil
+		}
+	}
+	return nil, linfo, errNotFound
+}
+
+func findPosNoModules(lprog *loader.Program, path string, off int) (*ast.File, *loader.PackageInfo, token.Pos, error) {
+	for _, pkg := range lprog.InitialPackages() {
+		for _, f := range pkg.Files {
+			if file := lprog.Fset.File(f.Pos()); file.Name() == path {
+				if off > file.Size() {
+					return nil, nil, 0,
+						fmt.Errorf("file size (%d) is smaller than given offset (%d)",
+							file.Size(), off)
+				}
+				return f, pkg, file.Pos(off), nil
+			}
+		}
+	}
+
+	return nil, nil, 0, fmt.Errorf("could not find file %q", path)
+}
+
+func byOffsetNoModules(lprog *loader.Program, path string, offset int) error {
+	f, pkg, pos, err := findPosNoModules(lprog, path, offset)
+	if err != nil {
+		return err
+	}
+
+	lit, litInfo, err := findCompositeLitNoModules(f, pkg.Info, pos)
+	if err != nil {
+		return err
+	}
+
+	start := lprog.Fset.Position(lit.Pos()).Offset
+	end := lprog.Fset.Position(lit.End()).Offset
+
+	importNames := buildImportNameMap(f)
+	newlit, lines := zeroValue(pkg.Pkg, importNames, lit, litInfo)
 	out, err := prepareOutput(newlit, lines, start, end)
 	if err != nil {
 		return err
