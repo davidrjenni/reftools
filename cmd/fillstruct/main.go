@@ -120,7 +120,7 @@ func main() {
 		Env:     os.Environ(),
 	}
 
-	pkgs, err := packages.Load(cfg, path)
+	pkgs, err := packages.Load(cfg)
 	if err != nil {
 		log.Fatal(err)
 	}
