@@ -10,6 +10,7 @@ import (
 	"go/token"
 	"go/types"
 	"strconv"
+	"strings"
 )
 
 // litInfo contains the information about
@@ -243,6 +244,10 @@ func (f *filler) zero(info litInfo, visited []types.Type) ast.Expr {
 
 		for i := 0; i < t.NumFields(); i++ {
 			field := t.Field(i)
+			// don't fill the field if it a gRPC system field
+			if strings.HasPrefix(field.Name(), "XXX_") {
+				continue
+			}
 			if kv, ok := f.existing[field.Name()]; first && ok {
 				f.pos++
 				lines++
