@@ -571,6 +571,24 @@ type myStruct struct {
 		N: 0,
 	},
 }`,
+		}, {
+			name: "gRPC types",
+			src: `package p
+
+import "unsafe"
+
+var s = myStruct{}
+
+type myStruct struct {
+	Name                 string
+	XXX_NoUnkeyedLiteral struct{}
+	XXX_unrecognized     []byte
+	XXX_sizecache        int32
+	XXX_whatever         string
+}`,
+			want: `myStruct{
+	Name: "",
+}`,
 		},
 	}
 
