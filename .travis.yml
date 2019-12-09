@@ -1,34 +1,27 @@
 language: go
 
-sudo: false
-
-notifications:
-    email:
-        on_success: change
-        on_failure: always
-
 go:
-    - 1.12.x
-    - 1.13.x
-    - tip
+  - 1.12.x
+  - 1.13.x
+  - tip
+
+git:
+  depth: 1
 
 os:
-    - linux
-    - osx
+  - linux
+  - osx
+
+notifications:
+  email:
+    on_success: change
+    on_failure: always
 
 before_install:
-    - GO_FILES=$(go list ./... | grep -v /vendor/ | grep -v /test-fixtures/)
-    - go get -v golang.org/x/lint/golint
-    - go get -v honnef.co/go/tools/cmd/staticcheck
-    - go get -v github.com/mdempsky/unconvert
-    - go get -v github.com/mdempsky/maligned
+  - curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v1.21.0
 
 install: true
 
 script:
-    - golint -set_exit_status $GO_FILES
-    - staticcheck $GO_FILES
-    - unconvert $GO_FILES
-    - maligned $GO_FILES
-    - go vet $GO_FILES
-    - go test -race -v $GO_FILES
+  - golangci-lint run --enable-all -D funlen,gocognit,gocyclo,godox,lll,scopelint,wsl
+  - go test -race -v ./...
