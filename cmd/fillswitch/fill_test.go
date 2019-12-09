@@ -21,7 +21,7 @@ func TestFillByOffset(t *testing.T) {
 		{folder: "typeswitch_2", offset: 59},
 		{folder: "typeswitch_3", offset: 69},
 		{folder: "typeswitch_4", offset: 67},
-		{folder: "typeswitch_5", offset: 170},
+		{folder: "typeswitch_5", offset: 160},
 		{folder: "broken_typeswitch", offset: 146},
 		{folder: "switch_1", offset: 78},
 		{folder: "empty_switch", offset: 51},
@@ -29,7 +29,7 @@ func TestFillByOffset(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		path, err := absPath(filepath.Join("./test-fixtures", test.folder, "input.go"))
+		path, err := absPath(filepath.Join("./testdata", test.folder, "input.go"))
 		if err != nil {
 			t.Fatalf("%s: %v\n", test.folder, err)
 		}
@@ -52,7 +52,7 @@ func TestFillByOffset(t *testing.T) {
 		}
 		got := []byte(outs[0].Code)
 
-		want, err := ioutil.ReadFile(filepath.Join("./test-fixtures", test.folder, "output.golden"))
+		want, err := ioutil.ReadFile(filepath.Join("./testdata", test.folder, "output.golden"))
 		if err != nil {
 			t.Fatalf("%s: %v\n", test.folder, err)
 		}
@@ -79,7 +79,7 @@ func TestFillByLine(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		path, err := absPath(filepath.Join("./test-fixtures", test.folder, "input.go"))
+		path, err := absPath(filepath.Join("./testdata", test.folder, "input.go"))
 		if err != nil {
 			t.Fatalf("%s: %v\n", test.folder, err)
 		}
@@ -102,7 +102,7 @@ func TestFillByLine(t *testing.T) {
 		}
 		got := []byte(outs[0].Code)
 
-		want, err := ioutil.ReadFile(filepath.Join("./test-fixtures", test.folder, "output.golden"))
+		want, err := ioutil.ReadFile(filepath.Join("./testdata", test.folder, "output.golden"))
 		if err != nil {
 			t.Fatalf("%s: %v\n", test.folder, err)
 		}

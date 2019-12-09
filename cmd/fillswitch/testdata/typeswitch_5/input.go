@@ -3,7 +3,7 @@ package p
 import (
 	"io"
 
-	_ "github.com/davidrjenni/reftools/cmd/fillswitch/test-fixtures/typeswitch_5/internal/foo"
+	_ "github.com/davidrjenni/reftools/cmd/fillswitch/testdata/typeswitch_5/internal/foo"
 )
 
 func test(r io.Reader) {
