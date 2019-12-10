@@ -91,7 +91,7 @@ func findConstsAndVars(lprog *loader.Program, pkg *types.Package, typ types.Type
 	return vars
 }
 
-func findTypes(lprog *loader.Program, pkg *types.Package, iface *types.Interface) []types.Type {
+func findTypes(lprog *loader.Program, pkg *types.Package, iface types.Type) []types.Type {
 	var typs []types.Type
 
 	err := types.Universe.Lookup("error").Type()
