@@ -86,7 +86,7 @@ func (f *filler) zero(info litInfo, visited []types.Type) ast.Expr {
 			dir = ast.RECV
 		}
 
-		mkcall := &ast.CallExpr{
+		return &ast.CallExpr{
 			Fun: &ast.Ident{
 				NamePos: f.pos,
 				Name:    "make",
@@ -100,8 +100,6 @@ func (f *filler) zero(info litInfo, visited []types.Type) ast.Expr {
 			},
 			Rparen: f.pos,
 		}
-
-		return mkcall
 	case *types.Interface:
 		return &ast.Ident{Name: "nil", NamePos: f.pos}
 	case *types.Map:
