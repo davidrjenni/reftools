@@ -102,7 +102,7 @@ func findTypes(lprog *loader.Program, pkg *types.Package, iface types.Type) []ty
 	for _, info := range lprog.AllPackages {
 		for _, obj := range info.Defs {
 			obj, ok := obj.(*types.TypeName)
-			if !ok || isAlias(obj) || !visible(pkg, obj) {
+			if !ok || obj.IsAlias() || !visible(pkg, obj) {
 				continue
 			}
 
