@@ -98,16 +98,22 @@ func main() {
 		os.Exit(1)
 	}
 
-	path, err := absPath(*filename)
-	if err != nil {
+	if err := fillstruct(*filename, *modified, *offset, *line); err != nil {
 		log.Fatal(err)
+	}
+}
+
+func fillstruct(filename string, modified bool, offset, line int) error {
+	path, err := absPath(filename)
+	if err != nil {
+		return err
 	}
 
 	var overlay map[string][]byte
-	if *modified {
+	if modified {
 		overlay, err = buildutil.ParseOverlayArchive(os.Stdin)
 		if err != nil {
-			log.Fatalf("invalid archive: %v", err)
+			return fmt.Errorf("invalid archive: %v", err)
 		}
 	}
 
@@ -122,32 +128,32 @@ func main() {
 
 	pkgs, err := packages.Load(cfg)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 
-	if *offset > 0 {
-		err = byOffset(pkgs, path, *offset)
+	if offset > 0 {
+		err = byOffset(pkgs, path, offset)
 		switch err {
 		case nil:
-			return
+			return nil
 		case errNotFound:
 			// try to use line information
 		default:
-			log.Fatal(err)
+			return err
 		}
 	}
 
-	if *line > 0 {
-		err = byLine(pkgs, path, *line)
+	if line > 0 {
+		err = byLine(pkgs, path, line)
 		switch err {
 		case nil:
-			return
+			return nil
 		default:
-			log.Fatal(err)
+			return err
 		}
 	}
 
-	log.Fatal(errNotFound)
+	return errNotFound
 }
 
 func absPath(filename string) (string, error) {
