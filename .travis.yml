@@ -24,6 +24,6 @@ before_install:
 install: true
 
 script:
-  - golangci-lint run --enable-all -D funlen,gocognit,gocyclo,godox,lll,scopelint,wsl
+  - golangci-lint run --enable-all -D funlen,gochecknoglobals,gocognit,gocyclo,godox,lll,scopelint,wsl
   - go test -race -v -covermode=atomic -coverprofile=coverage.out ./...
   - goveralls -coverprofile=coverage.out -service=travis-ci
