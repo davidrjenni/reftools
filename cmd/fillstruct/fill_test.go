@@ -22,56 +22,6 @@ func TestFill(t *testing.T) {
 		want string
 	}{
 		{
-			name: "only basic types",
-			src: `package p
-
-import "unsafe"
-
-var s = myStruct{}
-
-type myStruct struct {
-	a int
-	b bool
-	c complex64
-	d uint16
-	f float32
-	g string
-	h uintptr
-	i unsafe.Pointer
-}`,
-			want: `myStruct{
-	a: 0,
-	b: false,
-	c: (0 + 0i),
-	d: 0,
-	f: 0.0,
-	g: "",
-	h: uintptr(0),
-	i: unsafe.Pointer(uintptr(0)),
-}`,
-		},
-		{
-			name: "make",
-			src: `package p
-
-import "io"
-
-var s = myStruct{}
-
-type myStruct struct {
-	a chan int
-	b chan myStruct
-	c chan interface{}
-	d chan io.Writer
-}`,
-			want: `myStruct{
-	a: make(chan int),
-	b: make(chan myStruct),
-	c: make(chan interface{}),
-	d: make(chan io.Writer),
-}`,
-		},
-		{
 			name: "basic composite types",
 			src: `package p
 

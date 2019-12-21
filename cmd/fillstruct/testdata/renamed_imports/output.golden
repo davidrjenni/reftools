@@ -1,0 +1,17 @@
+S{
+	a: &goast.Ident{
+		NamePos: 0,
+		Name:    "",
+		Obj: &goast.Object{
+			Kind: 0,
+			Name: "",
+			Decl: nil,
+			Data: nil,
+			Type: nil,
+		},
+	},
+	b: LimitedReader{
+		R: nil,
+		N: 0,
+	},
+}
