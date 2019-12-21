@@ -1,4 +1,4 @@
-# fillstruct [![Build Status](https://travis-ci.org/davidrjenni/reftools.svg?branch=master)](https://travis-ci.org/davidrjenni/reftools) [![GoDoc](https://godoc.org/github.com/davidrjenni/reftools?status.svg)](https://godoc.org/github.com/davidrjenni/reftools/cmd/fillstruct) [![Go Report Card](https://goreportcard.com/badge/github.com/davidrjenni/reftools)](https://goreportcard.com/report/github.com/davidrjenni/reftools)
+# fillstruct [![Build Status](https://travis-ci.org/davidrjenni/reftools.svg?branch=master)](https://travis-ci.org/davidrjenni/reftools) [![Coverage Status](https://coveralls.io/repos/github/davidrjenni/reftools/badge.svg)](https://coveralls.io/github/davidrjenni/reftools) [![GoDoc](https://godoc.org/github.com/davidrjenni/reftools?status.svg)](https://godoc.org/github.com/davidrjenni/reftools/cmd/fillstruct) [![Go Report Card](https://goreportcard.com/badge/github.com/davidrjenni/reftools)](https://goreportcard.com/report/github.com/davidrjenni/reftools)
 
 fillstruct - fills a struct literal with default values
 
