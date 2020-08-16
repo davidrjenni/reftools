@@ -1,0 +1,49 @@
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: '0 0 * * *'
+name: CI
+
+jobs:
+  test:
+    name: Test
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        go: [1.13.x, 1.14.x, 1.15.x]
+    runs-on: ${{ matrix.os }}
+    steps:
+    - name: Install Go
+      uses: actions/setup-go@v2
+      with:
+        go-version: ${{ matrix.go }}
+    - name: Setup GOPATH
+      run: |
+        echo ::set-env name=GOPATH::${{ github.workspace }}
+        echo ::add-path::${{ github.workspace }}/bin
+    - name: Checkout code
+      uses: actions/checkout@v2
+      with:
+        path: src/github.com/davidrjenni/reftools
+    - name: Test
+      run: go test -race -covermode=atomic -coverprofile=profile.cov ./...
+      working-directory: src/github.com/davidrjenni/reftools
+    - name: Coverage
+      env:
+          COVERALLS_TOKEN: ${{ secrets.COVERALLS_TOKEN }}
+      run: |
+        GO111MODULE=off go get github.com/mattn/goveralls
+        $(go env GOPATH)/bin/goveralls -coverprofile=profile.cov -service=github
+      working-directory: src/github.com/davidrjenni/reftools
+
+  golangci:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - name: golangci-lint
+      uses: golangci/golangci-lint-action@v1
+      with:
+        version: v1.30
+        args: --enable-all -D exhaustive,funlen,gocognit,gocyclo,godox,goerr113,gofumpt,gomnd,gosec,lll,nestif,nlreturn,scopelint,testpackage,wsl
