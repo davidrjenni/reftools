@@ -165,47 +165,10 @@ func (f *filler) zero(info litInfo, visited []types.Type) ast.Expr {
 			},
 		}
 	case *types.Slice:
-		lit := &ast.CompositeLit{Lbrace: f.pos}
-		if !info.hideType {
-			typeName, ok := typeString(f.pkg, f.importNames, t.Elem())
-			if !ok {
-				return nil
-			}
-			lit.Type = &ast.ArrayType{
-				Lbrack: f.pos,
-				Elt:    ast.NewIdent(typeName),
-			}
-		}
-		f.lines += 2
-		f.pos++
-		lit.Rbrace = f.pos
-		return lit
+		return f.fillSequence(info, visited, t, nil)
+
 	case *types.Array:
-		lit := &ast.CompositeLit{Lbrace: f.pos}
-		if !info.hideType {
-			typeName, ok := typeString(f.pkg, f.importNames, t.Elem())
-			if !ok {
-				return nil
-			}
-			lit.Type = &ast.ArrayType{
-				Lbrack: f.pos,
-				Len:    &ast.BasicLit{Value: strconv.FormatInt(t.Len(), 10)},
-				Elt:    ast.NewIdent(typeName),
-			}
-		}
-		lit.Elts = make([]ast.Expr, 0, t.Len())
-		for i := int64(0); i < t.Len(); i++ {
-			f.pos++
-			elemInfo := litInfo{typ: t.Elem().Underlying(), hideType: true}
-			elemInfo.name, _ = t.Elem().(*types.Named)
-			if v := f.zero(elemInfo, visited); v != nil {
-				lit.Elts = append(lit.Elts, v)
-			}
-		}
-		f.lines += len(lit.Elts) + 2
-		f.pos++
-		lit.Rbrace = f.pos
-		return lit
+		return f.fillSequence(info, visited, t, &ast.BasicLit{Value: strconv.FormatInt(t.Len(), 10)})
 
 	case *types.Named:
 		if _, ok := t.Underlying().(*types.Struct); ok {
@@ -288,6 +251,43 @@ func (f *filler) zero(info litInfo, visited []types.Type) ast.Expr {
 	default:
 		panic(fmt.Sprintf("unexpected type %T", t))
 	}
+}
+
+// sequence is a interface that abstracts
+// between *types.Slice and *types.Array
+type sequence interface {
+	Elem() types.Type
+}
+
+func (f *filler) fillSequence(info litInfo, visited []types.Type, t sequence, length ast.Expr) ast.Expr {
+	lit := &ast.CompositeLit{Lbrace: f.pos}
+	if !info.hideType {
+		typeName, ok := typeString(f.pkg, f.importNames, t.Elem())
+		if !ok {
+			return nil
+		}
+		lit.Type = &ast.ArrayType{
+			Lbrack: f.pos,
+			Len:    length,
+			Elt:    ast.NewIdent(typeName),
+		}
+	}
+	if arr, isArray := t.(*types.Array); isArray {
+		lit.Elts = make([]ast.Expr, 0, arr.Len())
+		for i := int64(0); i < arr.Len(); i++ {
+			f.pos++
+			elemInfo := litInfo{typ: t.Elem().Underlying(), hideType: true}
+			elemInfo.name, _ = t.Elem().(*types.Named)
+			if v := f.zero(elemInfo, visited); v != nil {
+				lit.Elts = append(lit.Elts, v)
+			}
+		}
+		f.lines += len(lit.Elts)
+	}
+	f.lines += 2
+	f.pos++
+	lit.Rbrace = f.pos
+	return lit
 }
 
 func (f *filler) fixExprPos(expr ast.Expr) {
