@@ -91,7 +91,7 @@ type myStruct struct {
 	c: nil,
 	d: nil,
 	f: func(int) bool { panic("not implemented") },
-	g: nil,
+	g: []int{},
 }`,
 		},
 		{
@@ -176,7 +176,7 @@ type myStruct struct {
 			want: `myStruct{
 	a: 0,
 	b: nil,
-	c: nil,
+	c: []integer{},
 	f: func(reader) func(int) bool { panic("not implemented") },
 }`,
 		},
@@ -265,12 +265,12 @@ type myStruct struct {
 	},
 	e: [2][2][]unsafe.Pointer{
 		{
-			nil,
-			nil,
+			{},
+			{},
 		},
 		{
-			nil,
-			nil,
+			{},
+			{},
 		},
 	},
 	f: [1]interface{Read(p []byte) (n int, err error); foo(unsafe.Pointer, ...int) (bool, int); io.Reader}{
@@ -428,7 +428,7 @@ type myStruct struct {
 	lit: &ast.CallExpr{
 		Fun:      nil,
 		Lparen:   0,
-		Args:     nil,
+		Args:     []ast.Expr{},
 		Ellipsis: 0,
 		Rparen:   0,
 	},
@@ -502,7 +502,7 @@ type myStruct struct {
 	a: 0,
 	c: 0,
 	e: nil,
-	f: nil,
+	f: []int{},
 }`,
 		},
 		/*

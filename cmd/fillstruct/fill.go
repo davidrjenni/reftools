@@ -165,8 +165,21 @@ func (f *filler) zero(info litInfo, visited []types.Type) ast.Expr {
 			},
 		}
 	case *types.Slice:
-		return &ast.Ident{Name: "nil", NamePos: f.pos}
-
+		lit := &ast.CompositeLit{Lbrace: f.pos}
+		if !info.hideType {
+			typeName, ok := typeString(f.pkg, f.importNames, t.Elem())
+			if !ok {
+				return nil
+			}
+			lit.Type = &ast.ArrayType{
+				Lbrack: f.pos,
+				Elt:    ast.NewIdent(typeName),
+			}
+		}
+		f.lines += 2
+		f.pos++
+		lit.Rbrace = f.pos
+		return lit
 	case *types.Array:
 		lit := &ast.CompositeLit{Lbrace: f.pos}
 		if !info.hideType {
