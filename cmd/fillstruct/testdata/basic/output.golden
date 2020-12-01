@@ -1,0 +1,10 @@
+S{
+	a: 0,
+	b: false,
+	c: (0 + 0i),
+	d: 0,
+	e: 0.0,
+	f: "",
+	g: uintptr(0),
+	h: unsafe.Pointer(uintptr(0)),
+}

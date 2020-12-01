@@ -98,16 +98,26 @@ func main() {
 		os.Exit(1)
 	}
 
-	path, err := absPath(*filename)
+	outs, err := fillstruct(*filename, *modified, *offset, *line)
 	if err != nil {
 		log.Fatal(err)
 	}
+	if err := json.NewEncoder(os.Stdout).Encode(outs); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func fillstruct(filename string, modified bool, offset, line int) ([]output, error) {
+	path, err := absPath(filename)
+	if err != nil {
+		return nil, err
+	}
 
 	var overlay map[string][]byte
-	if *modified {
+	if modified {
 		overlay, err = buildutil.ParseOverlayArchive(os.Stdin)
 		if err != nil {
-			log.Fatalf("invalid archive: %v", err)
+			return nil, fmt.Errorf("invalid archive: %v", err)
 		}
 	}
 
@@ -122,32 +132,32 @@ func main() {
 
 	pkgs, err := packages.Load(cfg)
 	if err != nil {
-		log.Fatal(err)
+		return nil, err
 	}
 
-	if *offset > 0 {
-		err = byOffset(pkgs, path, *offset)
+	if offset > 0 {
+		outs, err := byOffset(pkgs, path, offset)
 		switch err {
 		case nil:
-			return
+			return outs, nil
 		case errNotFound:
 			// try to use line information
 		default:
-			log.Fatal(err)
+			return nil, err
 		}
 	}
 
-	if *line > 0 {
-		err = byLine(pkgs, path, *line)
+	if line > 0 {
+		outs, err := byLine(pkgs, path, line)
 		switch err {
 		case nil:
-			return
+			return outs, nil
 		default:
-			log.Fatal(err)
+			return nil, err
 		}
 	}
 
-	log.Fatal(errNotFound)
+	return nil, errNotFound
 }
 
 func absPath(filename string) (string, error) {
@@ -158,15 +168,15 @@ func absPath(filename string) (string, error) {
 	return filepath.Abs(eval)
 }
 
-func byOffset(lprog []*packages.Package, path string, offset int) error {
+func byOffset(lprog []*packages.Package, path string, offset int) ([]output, error) {
 	f, pkg, pos, err := findPos(lprog, path, offset)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	lit, litInfo, err := findCompositeLit(f, pkg.TypesInfo, pos)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	start := lprog[0].Fset.Position(lit.Pos()).Offset
@@ -176,9 +186,9 @@ func byOffset(lprog []*packages.Package, path string, offset int) error {
 	newlit, lines := zeroValue(pkg.Types, importNames, lit, litInfo)
 	out, err := prepareOutput(newlit, lines, start, end)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	return json.NewEncoder(os.Stdout).Encode([]output{out})
+	return []output{out}, nil
 }
 
 func findPos(lprog []*packages.Package, path string, off int) (*ast.File, *packages.Package, token.Pos, error) {
@@ -217,7 +227,7 @@ func findCompositeLit(f *ast.File, info *types.Info, pos token.Pos) (*ast.Compos
 	return nil, linfo, errNotFound
 }
 
-func byLine(lprog []*packages.Package, path string, line int) (err error) {
+func byLine(lprog []*packages.Package, path string, line int) (outs []output, err error) {
 	var f *ast.File
 	var pkg *packages.Package
 	for _, p := range lprog {
@@ -229,11 +239,10 @@ func byLine(lprog []*packages.Package, path string, line int) (err error) {
 		}
 	}
 	if f == nil || pkg == nil {
-		return fmt.Errorf("could not find file %q", path)
+		return nil, fmt.Errorf("could not find file %q", path)
 	}
 	importNames := buildImportNameMap(f)
 
-	var outs []output
 	var prev types.Type
 	ast.Inspect(f, func(n ast.Node) bool {
 		lit, ok := n.(*ast.CompositeLit)
@@ -270,10 +279,10 @@ func byLine(lprog []*packages.Package, path string, line int) (err error) {
 		return false
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if len(outs) == 0 {
-		return errNotFound
+		return nil, errNotFound
 	}
 
 	for i := len(outs)/2 - 1; i >= 0; i-- {
@@ -281,7 +290,7 @@ func byLine(lprog []*packages.Package, path string, line int) (err error) {
 		outs[i], outs[opp] = outs[opp], outs[i]
 	}
 
-	return json.NewEncoder(os.Stdout).Encode(outs)
+	return outs, nil
 }
 
 func hideType(t types.Type) bool {

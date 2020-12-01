@@ -1,0 +1,18 @@
+s1{
+	a: make(chan int),
+	c: make(chan interface{}),
+	d: make(chan io.Writer),
+	e: s2{
+		Ident: &ast.Ident{
+			NamePos: 0,
+			Name:    "",
+			Obj: &ast.Object{
+				Kind: 0,
+				Name: "",
+				Decl: nil,
+				Data: nil,
+				Type: nil,
+			},
+		},
+	},
+}

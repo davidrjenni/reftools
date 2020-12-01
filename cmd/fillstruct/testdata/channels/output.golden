@@ -1,0 +1,6 @@
+S{
+	a: make(chan int),
+	b: make(chan S),
+	c: make(chan interface{}),
+	d: make(chan io.Writer),
+}

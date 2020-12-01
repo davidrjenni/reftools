@@ -1,0 +1,10 @@
+s2{
+	a: 0,
+	b: false,
+	c: make(chan struct{}),
+}
+s1{
+	a: 0,
+	b: make(chan bool),
+	c: "",
+}
