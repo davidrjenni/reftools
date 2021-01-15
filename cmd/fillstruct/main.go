@@ -73,6 +73,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"golang.org/x/tools/go/ast/astutil"
 	"golang.org/x/tools/go/buildutil"
@@ -90,7 +91,9 @@ func main() {
 		modified = flag.Bool("modified", false, "read an archive of modified files from stdin")
 		offset   = flag.Int("offset", 0, "byte offset of the struct literal, optional if -line is present")
 		line     = flag.Int("line", 0, "line number of the struct literal, optional if -offset is present")
+		btags    buildutil.TagsFlag
 	)
+	flag.Var(&btags, "tags", buildutil.TagsFlagDoc)
 	flag.Parse()
 
 	if (*offset == 0 && *line == 0) || *filename == "" {
@@ -112,12 +115,13 @@ func main() {
 	}
 
 	cfg := &packages.Config{
-		Overlay: overlay,
-		Mode:    packages.LoadAllSyntax,
-		Tests:   true,
-		Dir:     filepath.Dir(path),
-		Fset:    token.NewFileSet(),
-		Env:     os.Environ(),
+		Overlay:    overlay,
+		Mode:       packages.LoadAllSyntax,
+		Tests:      true,
+		Dir:        filepath.Dir(path),
+		Fset:       token.NewFileSet(),
+		BuildFlags: []string{"-tags", strings.Join([]string(btags), ",")},
+		Env:        os.Environ(),
 	}
 
 	pkgs, err := packages.Load(cfg)
