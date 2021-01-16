@@ -51,6 +51,36 @@ type myStruct struct {
 }`,
 		},
 		{
+			name: "basic types with tags",
+			src: `// +build foo
+package p
+
+import "unsafe"
+
+var s = myStruct{}
+
+type myStruct struct {
+	a int
+	b bool
+	c complex64
+	d uint16
+	f float32
+	g string
+	h uintptr
+	i unsafe.Pointer
+}`,
+			want: `myStruct{
+	a: 0,
+	b: false,
+	c: (0 + 0i),
+	d: 0,
+	f: 0.0,
+	g: "",
+	h: uintptr(0),
+	i: unsafe.Pointer(uintptr(0)),
+}`,
+		},
+		{
 			name: "make",
 			src: `package p
 
