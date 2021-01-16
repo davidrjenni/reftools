@@ -53,6 +53,7 @@ type myStruct struct {
 		{
 			name: "basic types with tags",
 			src: `// +build foo
+
 package p
 
 import "unsafe"
