@@ -1,104 +1,83 @@
+// Copyright 2018 The Go Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
 package packages
 
 import (
-	"go/parser"
-	"go/token"
+	"encoding/json"
 	"path/filepath"
-	"strconv"
-	"strings"
+
+	"golang.org/x/tools/internal/gocommand"
 )
 
-// processGolistOverlay provides rudimentary support for adding
-// files that don't exist on disk to an overlay. The results can be
-// sometimes incorrect.
-// TODO(matloob): Handle unsupported cases, including the following:
-// - test files
-// - adding test and non-test files to test variants of packages
-// - determining the correct package to add given a new import path
-// - creating packages that don't exist
-func processGolistOverlay(cfg *Config, response *driverResponse) (modifiedPkgs, needPkgs []string, err error) {
-	havePkgs := make(map[string]string) // importPath -> non-test package ID
-	needPkgsSet := make(map[string]bool)
-	modifiedPkgsSet := make(map[string]bool)
-
-	for _, pkg := range response.Packages {
-		// This is an approximation of import path to id. This can be
-		// wrong for tests, vendored packages, and a number of other cases.
-		havePkgs[pkg.PkgPath] = pkg.ID
-	}
-
-outer:
-	for path, contents := range cfg.Overlay {
-		base := filepath.Base(path)
-		if strings.HasSuffix(path, "_test.go") {
-			// Overlays don't support adding new test files yet.
-			// TODO(matloob): support adding new test files.
-			continue
-		}
-		dir := filepath.Dir(path)
-		for _, pkg := range response.Packages {
-			var dirContains, fileExists bool
-			for _, f := range pkg.GoFiles {
-				if sameFile(filepath.Dir(f), dir) {
-					dirContains = true
-				}
-				if filepath.Base(f) == base {
-					fileExists = true
-				}
-			}
-			if dirContains {
-				if !fileExists {
-					pkg.GoFiles = append(pkg.GoFiles, path) // TODO(matloob): should the file just be added to GoFiles?
-					pkg.CompiledGoFiles = append(pkg.CompiledGoFiles, path)
-					modifiedPkgsSet[pkg.ID] = true
-				}
-				imports, err := extractImports(path, contents)
-				if err != nil {
-					// Let the parser or type checker report errors later.
-					continue outer
-				}
-				for _, imp := range imports {
-					_, found := pkg.Imports[imp]
-					if !found {
-						needPkgsSet[imp] = true
-						// TODO(matloob): Handle cases when the following block isn't correct.
-						// These include imports of test variants, imports of vendored packages, etc.
-						id, ok := havePkgs[imp]
-						if !ok {
-							id = imp
-						}
-						pkg.Imports[imp] = &Package{ID: id}
-					}
-				}
-				continue outer
-			}
-		}
-	}
-
-	needPkgs = make([]string, 0, len(needPkgsSet))
-	for pkg := range needPkgsSet {
-		needPkgs = append(needPkgs, pkg)
-	}
-	modifiedPkgs = make([]string, 0, len(modifiedPkgsSet))
-	for pkg := range modifiedPkgsSet {
-		modifiedPkgs = append(modifiedPkgs, pkg)
-	}
-	return modifiedPkgs, needPkgs, err
-}
-
-func extractImports(filename string, contents []byte) ([]string, error) {
-	f, err := parser.ParseFile(token.NewFileSet(), filename, contents, parser.ImportsOnly) // TODO(matloob): reuse fileset?
+// determineRootDirs returns a mapping from absolute directories that could
+// contain code to their corresponding import path prefixes.
+func (state *golistState) determineRootDirs() (map[string]string, error) {
+	env, err := state.getEnv()
 	if err != nil {
 		return nil, err
 	}
-	var res []string
-	for _, imp := range f.Imports {
-		quotedPath := imp.Path.Value
-		path, err := strconv.Unquote(quotedPath)
+	if env["GOMOD"] != "" {
+		state.rootsOnce.Do(func() {
+			state.rootDirs, state.rootDirsError = state.determineRootDirsModules()
+		})
+	} else {
+		state.rootsOnce.Do(func() {
+			state.rootDirs, state.rootDirsError = state.determineRootDirsGOPATH()
+		})
+	}
+	return state.rootDirs, state.rootDirsError
+}
+
+func (state *golistState) determineRootDirsModules() (map[string]string, error) {
+	// List all of the modules--the first will be the directory for the main
+	// module. Any replaced modules will also need to be treated as roots.
+	// Editing files in the module cache isn't a great idea, so we don't
+	// plan to ever support that.
+	out, err := state.invokeGo("list", "-m", "-json", "all")
+	if err != nil {
+		// 'go list all' will fail if we're outside of a module and
+		// GO111MODULE=on. Try falling back without 'all'.
+		var innerErr error
+		out, innerErr = state.invokeGo("list", "-m", "-json")
+		if innerErr != nil {
+			return nil, err
+		}
+	}
+	roots := map[string]string{}
+	modules := map[string]string{}
+	var i int
+	for dec := json.NewDecoder(out); dec.More(); {
+		mod := new(gocommand.ModuleJSON)
+		if err := dec.Decode(mod); err != nil {
+			return nil, err
+		}
+		if mod.Dir != "" && mod.Path != "" {
+			// This is a valid module; add it to the map.
+			absDir, err := filepath.Abs(mod.Dir)
+			if err != nil {
+				return nil, err
+			}
+			modules[absDir] = mod.Path
+			// The first result is the main module.
+			if i == 0 || mod.Replace != nil && mod.Replace.Path != "" {
+				roots[absDir] = mod.Path
+			}
+		}
+		i++
+	}
+	return roots, nil
+}
+
+func (state *golistState) determineRootDirsGOPATH() (map[string]string, error) {
+	m := map[string]string{}
+	for _, dir := range filepath.SplitList(state.mustGetEnv()["GOPATH"]) {
+		absDir, err := filepath.Abs(dir)
 		if err != nil {
 			return nil, err
 		}
-		res = append(res, path)
+		m[filepath.Join(absDir, "src")] = ""
 	}
-	return res, nil
+	return m, nil
 }

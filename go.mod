@@ -2,7 +2,9 @@ module github.com/davidrjenni/reftools
 
 require (
 	github.com/kisielk/gotool v1.0.0
-	golang.org/x/tools v0.0.0-20190408220357-e5b8258f4918
+	golang.org/x/tools v0.17.0
 )
 
-go 1.13
+require golang.org/x/mod v0.15.0 // indirect
+
+go 1.21
